@@ -13,7 +13,7 @@ set -euo pipefail
 APP_SUPPORT="$HOME/Library/Application Support/seed-life-dashboard-relay"
 STATE_FILE="$APP_SUPPORT/state.json"
 SRC_CACHE="$HOME/Library/Caches/seed-life-dashboard-relay/source"
-VIEWER_URL="git@github.com:plow-pbc/seed-life-dashboard-viewer.git"
+VIEWER_URL="https://github.com/plow-pbc/seed-life-dashboard-viewer.git"
 
 # Machine ID — first 8 hex chars of sha256(hostname + per-machine salt).
 SALT_FILE="$HOME/.config/seed/machine-id"
@@ -60,12 +60,17 @@ if [ ! -s ".vercel/project.json" ]; then
   vercel link --yes --project "$PROJECT_NAME"
 fi
 
-# 5. Upstash KV integration. Idempotent: if it's already added, this is
-#    a no-op. We don't parse the integration list — we just attempt the
-#    add and accept "already exists" as success. The integration's
-#    first-run consent is browser-based when newly added; that surfaces
-#    naturally to the operator and is normal SEED behavior.
-vercel integration add upstash-kv || true
+# 5. Upstash KV integration. Probe for existing provisioning first
+#    (any KV_* env var present on prod means a KV resource is already
+#    linked) — if absent, attempt the add and fail loudly on error.
+#    A blanket `|| true` here is the failure-masking class the relay
+#    SEED must avoid: a KV add that silently failed would land a state
+#    file pointing at a /api/message route that can't persist anything.
+if vercel env ls production 2>/dev/null | grep -qE '^\s*KV_(URL|REST_API_URL|REST_API_TOKEN)\b'; then
+  echo "Upstash KV already linked (KV_* env present on prod)." >&2
+else
+  vercel integration add upstash-kv
+fi
 
 # 6. DASHBOARD_TOKEN: collect from the operator on first install; reuse
 #    on subsequent runs. The presence check uses `vercel env ls` parsed
@@ -77,8 +82,12 @@ else
   echo "" >&2
   echo "Generate a DASHBOARD_TOKEN (the bearer the relay validates on /api/message)." >&2
   echo "Suggested: openssl rand -hex 32" >&2
-  echo "Type or paste the value, then press Enter:" >&2
-  read -r DASHBOARD_TOKEN </dev/tty
+  echo "Type or paste the value (input will NOT be echoed), then press Enter:" >&2
+  # `-s` silent: terminal doesn't echo as the operator types/pastes.
+  # `printf '\n'` after read because -s eats the operator's Enter
+  # keystroke too, leaving the cursor on the same line.
+  IFS= read -r -s DASHBOARD_TOKEN </dev/tty
+  printf '\n' >&2
   [ -n "$DASHBOARD_TOKEN" ] || {
     echo "no DASHBOARD_TOKEN supplied — aborting" >&2
     exit 1
@@ -109,9 +118,14 @@ fi
   exit 1
 }
 
-# 9. Land the state file atomically at mode 600.
+# 9. Land the state file atomically at mode 600. The temp file lives
+#    inside $APP_SUPPORT (not /tmp) so the final `mv` is a same-
+#    filesystem atomic rename — mktemp -t targets $TMPDIR which on
+#    macOS is /var/folders/..., a different volume from
+#    ~/Library/Application Support, where mv falls back to copy+unlink
+#    and can be observed half-written.
 mkdir -p "$APP_SUPPORT"
-TMP_STATE=$(mktemp -t relay-state)
+TMP_STATE=$(mktemp "$APP_SUPPORT/.state.json.XXXXXX")
 jq -n --arg url "$DEPLOY_URL" --arg tok "$DASHBOARD_TOKEN" \
   '{endpoint_url: $url, dashboard_token: $tok}' > "$TMP_STATE"
 chmod 600 "$TMP_STATE"

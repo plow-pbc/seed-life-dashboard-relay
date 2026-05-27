@@ -37,7 +37,8 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 ### State file ^obj-state
 
-- `~/Library/Application Support/seed-life-dashboard-relay/state.json`, mode 600, owner-only. The post-install handoff containing `{endpoint_url, dashboard_token}`. Downstream consumers (`seed-life-dashboard-agent`, `seed-life-dashboard-viewer`, `seed-life-dashboard` umbrella) read this file to wire themselves up.
+- `~/Library/Application Support/seed-life-dashboard-relay/state.json`, mode 600, owner-only. The **host-side, SEED-to-SEED handoff** containing `{endpoint_url, dashboard_token}`. Downstream consumers (`seed-life-dashboard-agent`, `seed-life-dashboard-viewer`, `seed-life-dashboard` umbrella) read this file at install time to wire themselves up.
+- **NOT the same as Plow's VM-side `/config/secrets/dashboard-endpoint-url` and `/config/secrets/dashboard-token` runtime files.** Those are materialized by [`seed-life-dashboard-agent`](https://github.com/plow-pbc/seed-life-dashboard-agent)'s `^act-land-secrets` — it reads this SEED's `^obj-state` at install time and writes the two single-value files at `<plow-app-support>/agent-runtime/secrets/` (bind-mounted into the VM at `/config/secrets/`). This SEED owns the host-side handoff; the agent SEED owns the runtime materialization.
 
 ### DASHBOARD_TOKEN ^obj-token
 
