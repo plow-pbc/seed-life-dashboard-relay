@@ -53,7 +53,7 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 - The install action MUST `git clone --depth 1` the viewer repo to a per-household cache directory under `~/Library/Caches/seed-life-dashboard-relay/source/`. Re-runs `git -C "$dir" fetch --depth=1` + `git -C "$dir" reset --hard origin/main` rather than re-cloning to keep the link state in `.vercel/` intact.
 - The install action MUST `vercel link --yes` against a project named `life-dashboard-<short-machine-id>` (or accept an existing link). The `<short-machine-id>` is the first 8 hex chars of `sha256(hostname + per-machine-salt)` — same salt the SEED convention uses for `anon_machine_id`. This keeps multiple households on the same Mac (rare but possible) from colliding on project name.
-- The install action MUST add the Upstash KV integration via `vercel integration add upstash-kv` (surfaced — the integration's first-run requires browser OAuth, can't be fully auto). KV credentials are exposed as `KV_URL` + `KV_REST_API_TOKEN` env vars on the deployment.
+- The install action MUST add the Upstash KV integration via `vercel integration add upstash-kv` (surfaced — the integration's first-run requires browser OAuth, can't be fully auto). KV credentials are exposed as `KV_REST_API_URL` + `KV_REST_API_TOKEN` env vars on the deployment; both names match what `ref/deploy.sh`'s idempotent-skip probe looks for.
 - The install action MUST collect `DASHBOARD_TOKEN` from the operator. Tier-3 — the SEED suggests `openssl rand -hex 32` as a copy-pasteable default but does NOT generate one silently (the operator picks). Once collected, the token is added via `vercel env add DASHBOARD_TOKEN production` (value via stdin, never argv).
 - The install action MUST `vercel deploy --prod` and capture the resulting URL.
 - A redeploy MUST NOT regenerate `DASHBOARD_TOKEN`. The operator re-running the install sees a "token already set on Vercel — reusing" message; the value is pulled from `vercel env pull` so the state file stays in sync.
@@ -74,7 +74,7 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 ## Verify
 
 1. **State file present and well-formed.** ^v-state Does `~/Library/Application Support/seed-life-dashboard-relay/state.json` exist with mode `600`, parse as JSON, and contain non-empty `endpoint_url` (HTTPS) and `dashboard_token` strings? Expected: yes.
-2. **Endpoint reachable.** ^v-reachable Does `curl -fsS -H "Authorization: Bearer $(jq -r .dashboard_token state.json)" "$(jq -r .endpoint_url state.json)/api/message"` return HTTP 200 with a JSON body (empty list `[]` is valid — relay was just deployed)? Expected: yes.
+2. **Endpoint reachable.** ^v-reachable Run `bash ref/verify.sh` (or the equivalent — see [`ref/verify.sh`](ref/verify.sh) for the exact mode-600 `curl -K`-config pattern that keeps `dashboard_token` out of process argv). The verifier asserts `GET <endpoint_url>/api/message` with bearer returns HTTP 200 with a JSON body (empty list `[]` is valid — relay was just deployed). Do NOT inline `curl -H "Authorization: Bearer $(jq -r .dashboard_token ...)"` literally: that puts the household token in process argv (visible via `ps` / `/proc/<pid>/cmdline`). Expected: yes.
 3. **Auth is enforced.** ^v-auth Does the same `curl` with NO Authorization header return 401? Expected: yes. (Catches a misconfigured deploy where `DASHBOARD_TOKEN` is unset on the Vercel side.)
 
 A deterministic bash implementation of these three prompts lives at [`ref/verify.sh`](ref/verify.sh).
