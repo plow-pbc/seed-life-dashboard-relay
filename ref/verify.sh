@@ -28,11 +28,18 @@ chmod 600 "$CURL_CFG"
 trap 'rm -f "$CURL_CFG"' EXIT
 printf 'header = "Authorization: Bearer %s"\n' "$TOK" > "$CURL_CFG"
 
-# v2: endpoint reachable with bearer.
+# v2: endpoint reachable with bearer AND body is valid JSON. The
+# SEED contract is JSON (empty list `[]` is valid on a freshly-deployed
+# relay); a 200 with non-JSON body would let install-time verify pass
+# while every downstream consumer (`jq` over the body) fails at runtime.
+BODY=$(mktemp -t relay-verify-body)
+trap 'rm -f "$CURL_CFG" "$BODY"' EXIT
 HTTP=$(curl -fsS -K "$CURL_CFG" \
-            -o /dev/null -w '%{http_code}' \
+            -o "$BODY" -w '%{http_code}' \
             "$URL/api/message")
 [ "$HTTP" = "200" ] || { echo "FAIL ^v-reachable: $URL/api/message → $HTTP" >&2; exit 1; }
+jq -e . "$BODY" >/dev/null \
+  || { echo "FAIL ^v-reachable: $URL/api/message returned non-JSON body" >&2; exit 1; }
 echo "OK   ^v-reachable"
 
 # v3: auth enforced (no header → 401).

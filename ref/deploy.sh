@@ -127,8 +127,13 @@ fi
 #    and can be observed half-written.
 mkdir -p "$APP_SUPPORT"
 TMP_STATE=$(mktemp "$APP_SUPPORT/.state.json.XXXXXX")
-jq -n --arg url "$DEPLOY_URL" --arg tok "$DASHBOARD_TOKEN" \
-  '{endpoint_url: $url, dashboard_token: $tok}' > "$TMP_STATE"
+# Bearer flows through stdin → jq's raw-slurp, never as a --arg value
+# (jq's argv is visible in /proc/<pid>/cmdline while the call is live).
+# `-Rs` reads stdin as one raw string into `.`; we strip the trailing
+# newline `printf '%s'` already omits and assemble the JSON from there.
+printf '%s' "$DASHBOARD_TOKEN" \
+  | jq -Rs --arg url "$DEPLOY_URL" '{endpoint_url: $url, dashboard_token: .}' \
+  > "$TMP_STATE"
 chmod 600 "$TMP_STATE"
 mv "$TMP_STATE" "$STATE_FILE"
 
