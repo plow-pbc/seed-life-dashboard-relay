@@ -19,8 +19,17 @@ case "$URL" in
 esac
 echo "OK   ^v-state"
 
+# Build a mode-600 curl config file carrying the Authorization header.
+# `printf` is a bash builtin (no fork), so the token never appears in
+# `ps` or /proc/<pid>/cmdline — unlike `-H "Authorization: ..."` which
+# does land in curl's argv.
+CURL_CFG=$(mktemp -t relay-verify-curl)
+chmod 600 "$CURL_CFG"
+trap 'rm -f "$CURL_CFG"' EXIT
+printf 'header = "Authorization: Bearer %s"\n' "$TOK" > "$CURL_CFG"
+
 # v2: endpoint reachable with bearer.
-HTTP=$(curl -fsS -H "Authorization: Bearer $TOK" \
+HTTP=$(curl -fsS -K "$CURL_CFG" \
             -o /dev/null -w '%{http_code}' \
             "$URL/api/message")
 [ "$HTTP" = "200" ] || { echo "FAIL ^v-reachable: $URL/api/message → $HTTP" >&2; exit 1; }

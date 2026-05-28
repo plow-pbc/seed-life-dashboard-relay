@@ -38,7 +38,10 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 ### State file ^obj-state
 
 - `~/Library/Application Support/seed-life-dashboard-relay/state.json`, mode 600, owner-only. The **host-side, SEED-to-SEED handoff** containing `{endpoint_url, dashboard_token}`. Downstream consumers (`seed-life-dashboard-agent`, `seed-life-dashboard-viewer`, `seed-life-dashboard` umbrella) read this file at install time to wire themselves up.
-- **NOT the same as Plow's VM-side `/config/secrets/dashboard-endpoint-url` and `/config/secrets/dashboard-token` runtime files.** Those are materialized by [`seed-life-dashboard-agent`](https://github.com/plow-pbc/seed-life-dashboard-agent)'s `^act-land-secrets` — it reads this SEED's `^obj-state` at install time and writes the two single-value files at `<plow-app-support>/agent-runtime/secrets/` (bind-mounted into the VM at `/config/secrets/`). This SEED owns the host-side handoff; the agent SEED owns the runtime materialization.
+- **`endpoint_url` is the Vercel deployment BASE URL** (e.g. `https://life-dashboard-abc123.vercel.app`) — NOT the full `/api/message` path. Downstream materialization is responsible for appending `/api/message` where the consumer needs a POST/GET endpoint. Specifically:
+  - `seed-life-dashboard-agent`'s `^act-land-secrets` writes `/config/secrets/dashboard-endpoint-url` = `${endpoint_url%/}/api/message` so `ld-shared/scripts/post_to_kiosk.py` (which `urlopen`s the file's content directly) hits the message-relay route.
+  - `seed-life-dashboard-viewer`'s `.env MESSAGE_API_URL` is set to `endpoint_url` (base only); the Pi's `server.js` constructs `${MESSAGE_API_URL}/api/message` itself when proxying.
+- **NOT the same as Plow's VM-side `/config/secrets/dashboard-endpoint-url` and `/config/secrets/dashboard-token` runtime files.** Those are materialized by [`seed-life-dashboard-agent`](https://github.com/plow-pbc/seed-life-dashboard-agent)'s `^act-land-secrets` — it reads this SEED's `^obj-state` at install time and writes the two single-value files at `<plow-app-support>/agent-runtime/secrets/` (bind-mounted into the VM at `/config/secrets/`). This SEED owns the host-side handoff; the agent SEED owns the runtime materialization (and the `/api/message` append).
 
 ### DASHBOARD_TOKEN ^obj-token
 

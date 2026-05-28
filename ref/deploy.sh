@@ -60,14 +60,15 @@ if [ ! -s ".vercel/project.json" ]; then
   vercel link --yes --project "$PROJECT_NAME"
 fi
 
-# 5. Upstash KV integration. Probe for existing provisioning first
-#    (any KV_* env var present on prod means a KV resource is already
-#    linked) — if absent, attempt the add and fail loudly on error.
-#    A blanket `|| true` here is the failure-masking class the relay
-#    SEED must avoid: a KV add that silently failed would land a state
-#    file pointing at a /api/message route that can't persist anything.
-if vercel env ls production 2>/dev/null | grep -qE '^\s*KV_(URL|REST_API_URL|REST_API_TOKEN)\b'; then
-  echo "Upstash KV already linked (KV_* env present on prod)." >&2
+# 5. Upstash KV integration. Probe for existing provisioning via the
+#    FULL credential pair — a partial set (URL without TOKEN or vice
+#    versa) leaves the relay deployed against an unusable KV. Require
+#    both KV_REST_API_URL AND KV_REST_API_TOKEN to consider it linked;
+#    if either is missing, attempt the add and fail loudly.
+KV_ENV=$(vercel env ls production 2>/dev/null || true)
+if echo "$KV_ENV" | grep -qE '^\s*KV_REST_API_URL\b' \
+   && echo "$KV_ENV" | grep -qE '^\s*KV_REST_API_TOKEN\b'; then
+  echo "Upstash KV already linked (KV_REST_API_URL + KV_REST_API_TOKEN both present on prod)." >&2
 else
   vercel integration add upstash-kv
 fi
