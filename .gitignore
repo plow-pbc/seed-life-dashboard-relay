@@ -1,3 +1,5 @@
 .vercel/
 node_modules/
 *.log
+verify-report.json
+install-report.json
