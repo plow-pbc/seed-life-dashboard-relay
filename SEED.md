@@ -39,13 +39,13 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 - `~/Library/Application Support/seed-life-dashboard-relay/state.json`, mode 600, owner-only. The **host-side, SEED-to-SEED handoff** containing `{endpoint_url, dashboard_token}`. Downstream consumers (`seed-life-dashboard-agent`, `seed-life-dashboard-viewer`, `seed-life-dashboard` umbrella) read this file at install time to wire themselves up.
 - **`endpoint_url` is the Vercel deployment BASE URL** (e.g. `https://life-dashboard-abc123.vercel.app`) — NOT the full `/api/message` path. Downstream materialization is responsible for appending `/api/message` where the consumer needs a POST/GET endpoint. Specifically:
-  - `seed-life-dashboard-agent`'s _Dashboard secrets are landed_ action writes `/config/secrets/dashboard-endpoint-url` = `${endpoint_url%/}/api/message` so `ld-shared/scripts/post_to_kiosk.py` (which `urlopen`s the file's content directly) hits the message-relay route.
+  - `seed-life-dashboard-agent`'s [dashboard-secrets landing action](https://github.com/plow-pbc/seed-life-dashboard-agent/blob/main/SEED.md#dashboard-secrets-are-landed) writes `/config/secrets/dashboard-endpoint-url` = `${endpoint_url%/}/api/message` so `ld-shared/scripts/post_to_kiosk.py` (which `urlopen`s the file's content directly) hits the message-relay route.
   - `seed-life-dashboard-viewer`'s `.env MESSAGE_API_URL` is set to `endpoint_url` (base only); the Pi's `server.js` constructs `${MESSAGE_API_URL}/api/message` itself when proxying.
-- **NOT the same as Plow's VM-side `/config/secrets/dashboard-endpoint-url` and `/config/secrets/dashboard-token` runtime files.** Those are materialized by [`seed-life-dashboard-agent`](https://github.com/plow-pbc/seed-life-dashboard-agent)'s _Dashboard secrets are landed_ action — it reads this SEED's [state file](#state-file) at install time and writes the two single-value files at `<plow-app-support>/agent-runtime/secrets/` (bind-mounted into the VM at `/config/secrets/`). This SEED owns the host-side handoff; the agent SEED owns the runtime materialization (and the `/api/message` append).
+- **NOT the same as Plow's VM-side `/config/secrets/dashboard-endpoint-url` and `/config/secrets/dashboard-token` runtime files.** Those are materialized by [`seed-life-dashboard-agent`](https://github.com/plow-pbc/seed-life-dashboard-agent)'s [dashboard-secrets landing action](https://github.com/plow-pbc/seed-life-dashboard-agent/blob/main/SEED.md#dashboard-secrets-are-landed) — it reads this SEED's [state file](#state-file) at install time and writes the two single-value files at `<plow-app-support>/agent-runtime/secrets/` (bind-mounted into the VM at `/config/secrets/`). This SEED owns the host-side handoff; the agent SEED owns the runtime materialization (and the `/api/message` append).
 
 ### DASHBOARD_TOKEN
 
-- The operator-generated bearer the relay validates on every `/api/message` read/write. NOT logged, NOT echoed, NOT included in commits. The SEED prompts for it once (tier-3) and lands it in two places: Vercel env (production) and the state file — nowhere else.
+- The operator-generated bearer the relay validates on every `/api/message` read/write. NOT logged, NOT echoed, NOT included in commits. The SEED prompts for it once (tier-3 per [Tier](https://github.com/plow-pbc/seed/blob/main/SEED.md#tier)) and lands it in two places: Vercel env (production) and the state file — nowhere else.
 
 ## Actions
 
@@ -86,12 +86,16 @@ A deterministic bash implementation of these three prompts lives at [`ref/verify
 ## Open
 
 - The Vercel-deployable source lives in `seed-life-dashboard-viewer/ref/app/`. Extraction to its own repo `life-dashboard-relay-app` becomes the right move if a third consumer materializes (hosted multi-tenant, mobile companion). For v1 the clone-the-viewer approach keeps the source single-truth.
-- v1 = one Vercel deploy per household. A future shared multi-tenant relay with per-token isolation would obsolete the per-household install.
+
+#### Multi-tenant relay
+
+v1 = one Vercel deploy per household. A future shared multi-tenant relay with per-token isolation would obsolete the per-household install.
+
 - No SHA / signature pin on the cloned viewer source. The agent trusts SSH GitHub + the operator's account access.
 - No uninstall action. To remove: `vercel projects rm life-dashboard-<id>`, `rm -rf ~/Library/Application\ Support/seed-life-dashboard-relay`, `rm -rf ~/Library/Caches/seed-life-dashboard-relay`.
 
 ## Non-Goals
 
 - Not Linux or Windows. macOS-only by inheritance from the `~/Library/Application Support` path convention.
-- Not a shared multi-tenant deploy. Per-household by design until the shared multi-tenant relay in [Open](#open) is acted on.
+- Not a shared multi-tenant deploy. Per-household by design until the [multi-tenant relay](#multi-tenant-relay) is acted on.
 - Not source for the React SPA — that lives in the viewer repo's `ref/app/`. This SEED is a deploy recipe, not a code mirror.
