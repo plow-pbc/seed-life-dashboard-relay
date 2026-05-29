@@ -45,7 +45,7 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 ### DASHBOARD_TOKEN
 
-- The operator-generated bearer the relay validates on every `/api/message` read/write. NOT logged, NOT echoed, NOT included in commits. The SEED prompts for it once (tier-3 per [Tier](#tier)) and lands it in two places: Vercel env (production) and the state file — nowhere else.
+- The operator-generated bearer the relay validates on every `/api/message` read/write. NOT logged, NOT echoed, NOT included in commits. The SEED prompts for it once (tier-3) and lands it in two places: Vercel env (production) and the state file — nowhere else.
 
 ## Actions
 
