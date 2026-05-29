@@ -27,29 +27,29 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 ## Objects
 
-### Vercel project ^obj-vercel-project
+### Vercel project
 
 - The linked Vercel project (`.vercel/project.json` inside the cloned viewer's `ref/app/`). The single source of truth for "this household's relay" as far as Vercel is concerned.
 
-### Upstash KV resource ^obj-kv
+### Upstash KV resource
 
 - The Upstash KV resource the relay's `/api/message` route reads from and writes to. Provisioned via Vercel's marketplace integration (`vercel integration add upstash-kv`).
 
-### State file ^obj-state
+### State file
 
 - `~/Library/Application Support/seed-life-dashboard-relay/state.json`, mode 600, owner-only. The **host-side, SEED-to-SEED handoff** containing `{endpoint_url, dashboard_token}`. Downstream consumers (`seed-life-dashboard-agent`, `seed-life-dashboard-viewer`, `seed-life-dashboard` umbrella) read this file at install time to wire themselves up.
 - **`endpoint_url` is the Vercel deployment BASE URL** (e.g. `https://life-dashboard-abc123.vercel.app`) — NOT the full `/api/message` path. Downstream materialization is responsible for appending `/api/message` where the consumer needs a POST/GET endpoint. Specifically:
-  - `seed-life-dashboard-agent`'s `^act-land-secrets` writes `/config/secrets/dashboard-endpoint-url` = `${endpoint_url%/}/api/message` so `ld-shared/scripts/post_to_kiosk.py` (which `urlopen`s the file's content directly) hits the message-relay route.
+  - `seed-life-dashboard-agent`'s _Dashboard secrets are landed_ action writes `/config/secrets/dashboard-endpoint-url` = `${endpoint_url%/}/api/message` so `ld-shared/scripts/post_to_kiosk.py` (which `urlopen`s the file's content directly) hits the message-relay route.
   - `seed-life-dashboard-viewer`'s `.env MESSAGE_API_URL` is set to `endpoint_url` (base only); the Pi's `server.js` constructs `${MESSAGE_API_URL}/api/message` itself when proxying.
-- **NOT the same as Plow's VM-side `/config/secrets/dashboard-endpoint-url` and `/config/secrets/dashboard-token` runtime files.** Those are materialized by [`seed-life-dashboard-agent`](https://github.com/plow-pbc/seed-life-dashboard-agent)'s `^act-land-secrets` — it reads this SEED's `^obj-state` at install time and writes the two single-value files at `<plow-app-support>/agent-runtime/secrets/` (bind-mounted into the VM at `/config/secrets/`). This SEED owns the host-side handoff; the agent SEED owns the runtime materialization (and the `/api/message` append).
+- **NOT the same as Plow's VM-side `/config/secrets/dashboard-endpoint-url` and `/config/secrets/dashboard-token` runtime files.** Those are materialized by [`seed-life-dashboard-agent`](https://github.com/plow-pbc/seed-life-dashboard-agent)'s _Dashboard secrets are landed_ action — it reads this SEED's [state file](#state-file) at install time and writes the two single-value files at `<plow-app-support>/agent-runtime/secrets/` (bind-mounted into the VM at `/config/secrets/`). This SEED owns the host-side handoff; the agent SEED owns the runtime materialization (and the `/api/message` append).
 
-### DASHBOARD_TOKEN ^obj-token
+### DASHBOARD_TOKEN
 
 - The operator-generated bearer the relay validates on every `/api/message` read/write. NOT logged, NOT echoed, NOT included in commits. The SEED prompts for it once (tier-3 per [Tier](#tier)) and lands it in two places: Vercel env (production) and the state file — nowhere else.
 
 ## Actions
 
-### Vercel project is deployed ^act-deploy
+### Vercel project is deployed
 
 - The install action MUST `git clone --depth 1` the viewer repo to a per-household cache directory under `~/Library/Caches/seed-life-dashboard-relay/source/`. Re-runs `git -C "$dir" fetch --depth=1` + `git -C "$dir" reset --hard origin/main` rather than re-cloning to keep the link state in `.vercel/` intact.
 - The install action MUST `vercel link --yes` against a project named `life-dashboard-<short-machine-id>` (or accept an existing link). The `<short-machine-id>` is the first 8 hex chars of `sha256(hostname + per-machine-salt)` — same salt the SEED convention uses for `anon_machine_id`. This keeps multiple households on the same Mac (rare but possible) from colliding on project name.
@@ -58,7 +58,7 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 - The install action MUST `vercel deploy --prod` and capture the resulting URL.
 - A redeploy MUST NOT regenerate `DASHBOARD_TOKEN`. The operator re-running the install sees a "token already set on Vercel — reusing" message; the value is pulled from `vercel env pull` so the state file stays in sync.
 
-### State file is landed ^act-land-state
+### State file is landed
 
 - The install action MUST write `~/Library/Application Support/seed-life-dashboard-relay/state.json` atomically (mktemp + rename) with mode 600. Body:
 
@@ -73,9 +73,9 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 ## Verify
 
-1. **State file present and well-formed.** ^v-state Does `~/Library/Application Support/seed-life-dashboard-relay/state.json` exist with mode `600`, parse as JSON, and contain non-empty `endpoint_url` (HTTPS) and `dashboard_token` strings? Expected: yes.
-2. **Endpoint reachable.** ^v-reachable Run `bash ref/verify.sh` (or the equivalent — see [`ref/verify.sh`](ref/verify.sh) for the exact mode-600 `curl -K`-config pattern that keeps `dashboard_token` out of process argv). The verifier asserts `GET <endpoint_url>/api/message` with bearer returns HTTP 200 with a JSON body (empty list `[]` is valid — relay was just deployed). Do NOT inline `curl -H "Authorization: Bearer $(jq -r .dashboard_token ...)"` literally: that puts the household token in process argv (visible via `ps` / `/proc/<pid>/cmdline`). Expected: yes.
-3. **Auth is enforced.** ^v-auth Does the same `curl` with NO Authorization header return 401? Expected: yes. (Catches a misconfigured deploy where `DASHBOARD_TOKEN` is unset on the Vercel side.)
+1. **State file present and well-formed.** Does `~/Library/Application Support/seed-life-dashboard-relay/state.json` exist with mode `600`, parse as JSON, and contain non-empty `endpoint_url` (HTTPS) and `dashboard_token` strings? Expected: yes.
+2. **Endpoint reachable.** Run `bash ref/verify.sh` (or the equivalent — see [`ref/verify.sh`](ref/verify.sh) for the exact mode-600 `curl -K`-config pattern that keeps `dashboard_token` out of process argv). The verifier asserts `GET <endpoint_url>/api/message` with bearer returns HTTP 200 with a JSON body (empty list `[]` is valid — relay was just deployed). Do NOT inline `curl -H "Authorization: Bearer $(jq -r .dashboard_token ...)"` literally: that puts the household token in process argv (visible via `ps` / `/proc/<pid>/cmdline`). Expected: yes.
+3. **Auth is enforced.** Does the same `curl` with NO Authorization header return 401? Expected: yes. (Catches a misconfigured deploy where `DASHBOARD_TOKEN` is unset on the Vercel side.)
 
 A deterministic bash implementation of these three prompts lives at [`ref/verify.sh`](ref/verify.sh).
 
@@ -85,13 +85,13 @@ A deterministic bash implementation of these three prompts lives at [`ref/verify
 
 ## Open
 
-- The Vercel-deployable source lives in `seed-life-dashboard-viewer/ref/app/`. Extraction to its own repo `life-dashboard-relay-app` becomes the right move if a third consumer materializes (hosted multi-tenant, mobile companion). For v1 the clone-the-viewer approach keeps the source single-truth. ^o-source
-- v1 = one Vercel deploy per household. A future shared multi-tenant relay with per-token isolation would obsolete the per-household install. ^o-multi-tenant
-- No SHA / signature pin on the cloned viewer source. The agent trusts SSH GitHub + the operator's account access. ^o-pin
-- No uninstall action. To remove: `vercel projects rm life-dashboard-<id>`, `rm -rf ~/Library/Application\ Support/seed-life-dashboard-relay`, `rm -rf ~/Library/Caches/seed-life-dashboard-relay`. ^o-uninstall
+- The Vercel-deployable source lives in `seed-life-dashboard-viewer/ref/app/`. Extraction to its own repo `life-dashboard-relay-app` becomes the right move if a third consumer materializes (hosted multi-tenant, mobile companion). For v1 the clone-the-viewer approach keeps the source single-truth.
+- v1 = one Vercel deploy per household. A future shared multi-tenant relay with per-token isolation would obsolete the per-household install.
+- No SHA / signature pin on the cloned viewer source. The agent trusts SSH GitHub + the operator's account access.
+- No uninstall action. To remove: `vercel projects rm life-dashboard-<id>`, `rm -rf ~/Library/Application\ Support/seed-life-dashboard-relay`, `rm -rf ~/Library/Caches/seed-life-dashboard-relay`.
 
 ## Non-Goals
 
 - Not Linux or Windows. macOS-only by inheritance from the `~/Library/Application Support` path convention.
-- Not a shared multi-tenant deploy. Per-household by design until `^o-multi-tenant` is acted on.
+- Not a shared multi-tenant deploy. Per-household by design until the shared multi-tenant relay in [Open](#open) is acted on.
 - Not source for the React SPA — that lives in the viewer repo's `ref/app/`. This SEED is a deploy recipe, not a code mirror.
