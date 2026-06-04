@@ -96,8 +96,14 @@ else
   printf '%s' "$DASHBOARD_TOKEN" | vercel env add DASHBOARD_TOKEN production
 fi
 
-# 7. Deploy.
-DEPLOY_URL=$(vercel deploy --prod --yes | tail -1)
+# 7. Deploy. `vercel deploy` may emit trailing diagnostic lines (inspect
+#    hints, warnings) after the deployment URL, so `tail -1` can poison
+#    DEPLOY_URL with a non-URL. Extract the LAST https://...vercel.app
+#    token from the full output instead — robust to extra trailing lines.
+DEPLOY_OUT=$(vercel deploy --prod --yes)
+DEPLOY_URL=$(printf '%s\n' "$DEPLOY_OUT" \
+             | grep -oE 'https://[A-Za-z0-9.-]+\.vercel\.app' \
+             | tail -1)
 [ -n "$DEPLOY_URL" ] || { echo "vercel deploy failed to return a URL" >&2; exit 1; }
 
 # 8. Resolve the DASHBOARD_TOKEN value for the state file. On a reused
