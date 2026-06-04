@@ -16,7 +16,7 @@ API / per-machine state:
 
 Software:
 
-- Node ≥ 20, `git`, `jq`, `vercel` CLI (`npm i -g vercel@latest`). System tools at `/usr/bin/*`: `curl`, `mkdir`.
+- Node ≥ 20.6, `git`, `jq`, `vercel` CLI (`npm i -g vercel@latest`). System tools at `/usr/bin/*`: `curl`, `mkdir`.
 
 Run the following block to deploy the relay. The block is idempotent: re-running redeploys against the same Vercel project and rewrites the state file with the current values.
 
