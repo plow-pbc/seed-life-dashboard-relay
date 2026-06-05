@@ -103,7 +103,7 @@ fi
 DEPLOY_OUT=$(vercel deploy --prod --yes)
 DEPLOY_URL=$(printf '%s\n' "$DEPLOY_OUT" \
              | grep -oE 'https://[A-Za-z0-9.-]+\.vercel\.app' \
-             | tail -1)
+             | tail -1 || true)
 [ -n "$DEPLOY_URL" ] || { echo "vercel deploy failed to return a URL" >&2; exit 1; }
 
 # 8. Resolve the DASHBOARD_TOKEN value for the state file. On a reused
