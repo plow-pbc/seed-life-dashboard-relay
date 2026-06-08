@@ -15,6 +15,14 @@ STATE_FILE="$APP_SUPPORT/state.json"
 SRC_CACHE="$HOME/Library/Caches/seed-life-dashboard-relay/source"
 VIEWER_URL="https://github.com/plow-pbc/seed-life-dashboard-viewer.git"
 
+# 1. Required tools. Checked BEFORE first use of any of them (xxd/shasum
+#    in the machine-ID block, openssl in the headless DASHBOARD_TOKEN
+#    auto-generation path) so a missing tool fails loudly up front.
+for tool in vercel git jq curl shasum xxd openssl; do
+  command -v "$tool" >/dev/null \
+    || { echo "missing required tool: $tool" >&2; exit 1; }
+done
+
 # Machine ID — first 8 hex chars of sha256(hostname + per-machine salt).
 SALT_FILE="$HOME/.config/seed/machine-id"
 mkdir -p "$(dirname "$SALT_FILE")"
@@ -25,12 +33,6 @@ fi
 SHORT_ID=$(printf '%s%s' "$(hostname)" "$(cat "$SALT_FILE")" \
            | shasum -a 256 | cut -c1-8)
 PROJECT_NAME="life-dashboard-$SHORT_ID"
-
-# 1. Required tools.
-for tool in vercel git jq curl shasum xxd; do
-  command -v "$tool" >/dev/null \
-    || { echo "missing required tool: $tool" >&2; exit 1; }
-done
 
 # 2. Vercel login surface. We can't drive the OAuth browser flow ourselves.
 #    A logged-in `vercel whoami` exits 0; otherwise we surface the command
@@ -69,30 +71,62 @@ KV_ENV=$(vercel env ls production 2>/dev/null || true)
 if echo "$KV_ENV" | grep -qE '^\s*KV_REST_API_URL\b' \
    && echo "$KV_ENV" | grep -qE '^\s*KV_REST_API_TOKEN\b'; then
   echo "Upstash KV already linked (KV_REST_API_URL + KV_REST_API_TOKEN both present on prod)." >&2
+elif [ -n "${KV_REST_API_URL:-}" ] && [ -n "${KV_REST_API_TOKEN:-}" ]; then
+  # Headless / OAuth-free path: both credentials supplied in the
+  # environment. Push them straight to prod and SKIP `vercel integration
+  # add upstash-kv` — the only step that requires the browser OAuth flow.
+  # Values flow through stdin (printf is a builtin, no fork), never as
+  # argv, so they stay out of `ps` / /proc/<pid>/cmdline.
+  echo "Upstash KV credentials supplied via environment — pushing to prod (skipping integration add)." >&2
+  printf '%s' "$KV_REST_API_URL"   | vercel env add KV_REST_API_URL production
+  printf '%s' "$KV_REST_API_TOKEN" | vercel env add KV_REST_API_TOKEN production
 else
   vercel integration add upstash-kv
 fi
 
 # 6. DASHBOARD_TOKEN: collect from the operator on first install; reuse
 #    on subsequent runs. The presence check uses `vercel env ls` parsed
-#    via grep; absence triggers the tier-3 prompt.
+#    via grep; absence triggers token resolution (env / auto-gen / prompt).
+# Capture any environment-supplied value BEFORE resetting, strip a trailing
+# CR (CRLF-terminated env / pasted line) so it can't poison the bearer that
+# lands on Vercel + in the state file. The full value is NEVER echoed —
+# only its last 3 chars.
+DASHBOARD_TOKEN_ENV="${DASHBOARD_TOKEN:-}"
+DASHBOARD_TOKEN_ENV="${DASHBOARD_TOKEN_ENV%$'\r'}"
 DASHBOARD_TOKEN=""
 if vercel env ls production 2>/dev/null | grep -qE '^\s*DASHBOARD_TOKEN\b'; then
   echo "DASHBOARD_TOKEN already set on production — reusing." >&2
 else
-  echo "" >&2
-  echo "Generate a DASHBOARD_TOKEN (the bearer the relay validates on /api/message)." >&2
-  echo "Suggested: openssl rand -hex 32" >&2
-  echo "Type or paste the value (input will NOT be echoed), then press Enter:" >&2
-  # `-s` silent: terminal doesn't echo as the operator types/pastes.
-  # `printf '\n'` after read because -s eats the operator's Enter
-  # keystroke too, leaving the cursor on the same line.
-  IFS= read -r -s DASHBOARD_TOKEN </dev/tty
-  printf '\n' >&2
-  [ -n "$DASHBOARD_TOKEN" ] || {
-    echo "no DASHBOARD_TOKEN supplied — aborting" >&2
-    exit 1
-  }
+  # Resolution order:
+  #   1. $DASHBOARD_TOKEN supplied in the environment → use it.
+  #   2. no env value AND no controlling terminal (headless / agent-driven
+  #      install) → auto-generate via `openssl rand -hex 32`.
+  #   3. no env value but a TTY is present → prompt the operator on /dev/tty.
+  DASHBOARD_TOKEN="$DASHBOARD_TOKEN_ENV"
+  if [ -n "$DASHBOARD_TOKEN" ]; then
+    echo "DASHBOARD_TOKEN supplied via environment (…${DASHBOARD_TOKEN: -3})." >&2
+  # Probe for a controlling terminal by actually OPENING /dev/tty — a node
+  # can exist with rwx bits yet fail to open with no controlling terminal
+  # (the headless / agent-harness case); [ -r ]/[ -w ] do not catch that.
+  elif ( : <>/dev/tty ) 2>/dev/null; then
+    echo "" >&2
+    echo "Generate a DASHBOARD_TOKEN (the bearer the relay validates on /api/message)." >&2
+    echo "Suggested: openssl rand -hex 32" >&2
+    echo "Type or paste the value (input will NOT be echoed), then press Enter:" >&2
+    # `-s` silent: terminal doesn't echo as the operator types/pastes.
+    # `printf '\n'` after read because -s eats the operator's Enter
+    # keystroke too, leaving the cursor on the same line.
+    IFS= read -r -s DASHBOARD_TOKEN </dev/tty
+    printf '\n' >&2
+    DASHBOARD_TOKEN="${DASHBOARD_TOKEN%$'\r'}"
+    [ -n "$DASHBOARD_TOKEN" ] || {
+      echo "no DASHBOARD_TOKEN supplied — aborting" >&2
+      exit 1
+    }
+  else
+    DASHBOARD_TOKEN=$(openssl rand -hex 32)
+    echo "No DASHBOARD_TOKEN in env and no controlling terminal — auto-generated one (…${DASHBOARD_TOKEN: -3})." >&2
+  fi
   printf '%s' "$DASHBOARD_TOKEN" | vercel env add DASHBOARD_TOKEN production
 fi
 
