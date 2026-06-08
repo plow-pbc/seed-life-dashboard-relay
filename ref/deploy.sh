@@ -78,8 +78,11 @@ elif [ -n "${KV_REST_API_URL:-}" ] && [ -n "${KV_REST_API_TOKEN:-}" ]; then
   # Values flow through stdin (printf is a builtin, no fork), never as
   # argv, so they stay out of `ps` / /proc/<pid>/cmdline.
   echo "Upstash KV credentials supplied via environment — pushing to prod (skipping integration add)." >&2
-  printf '%s' "$KV_REST_API_URL"   | vercel env add KV_REST_API_URL production
-  printf '%s' "$KV_REST_API_TOKEN" | vercel env add KV_REST_API_TOKEN production
+  # Strip a trailing CR (CRLF-terminated env file) before landing, same as
+  # the DASHBOARD_TOKEN path — a stray \r would otherwise poison the value
+  # stored on prod and silently break the relay's KV access.
+  printf '%s' "${KV_REST_API_URL%$'\r'}"   | vercel env add KV_REST_API_URL production
+  printf '%s' "${KV_REST_API_TOKEN%$'\r'}" | vercel env add KV_REST_API_TOKEN production
 else
   vercel integration add upstash-kv
 fi
