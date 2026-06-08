@@ -23,6 +23,18 @@ for tool in vercel git jq curl shasum xxd openssl; do
     || { echo "missing required tool: $tool" >&2; exit 1; }
 done
 
+# 1b. Capture any env-supplied secrets into UNEXPORTED locals, strip a
+#     trailing CR (CRLF env file / pasted line), then `unset` the exported
+#     originals BEFORE the first external command (`vercel whoami` below).
+#     The script passes every secret to `vercel env add` via stdin, never
+#     argv, so the `vercel`/`git` subprocesses don't need them in the env —
+#     unsetting keeps them out of inherited child environments entirely
+#     (defense-in-depth). The full values are NEVER echoed (last 3 chars only).
+KV_URL_ENV="${KV_REST_API_URL:-}";   KV_URL_ENV="${KV_URL_ENV%$'\r'}"
+KV_TOKEN_ENV="${KV_REST_API_TOKEN:-}"; KV_TOKEN_ENV="${KV_TOKEN_ENV%$'\r'}"
+DASH_ENV="${DASHBOARD_TOKEN:-}";     DASH_ENV="${DASH_ENV%$'\r'}"
+unset KV_REST_API_URL KV_REST_API_TOKEN DASHBOARD_TOKEN
+
 # Machine ID — first 8 hex chars of sha256(hostname + per-machine salt).
 SALT_FILE="$HOME/.config/seed/machine-id"
 mkdir -p "$(dirname "$SALT_FILE")"
@@ -71,18 +83,16 @@ KV_ENV=$(vercel env ls production 2>/dev/null || true)
 if echo "$KV_ENV" | grep -qE '^\s*KV_REST_API_URL\b' \
    && echo "$KV_ENV" | grep -qE '^\s*KV_REST_API_TOKEN\b'; then
   echo "Upstash KV already linked (KV_REST_API_URL + KV_REST_API_TOKEN both present on prod)." >&2
-elif [ -n "${KV_REST_API_URL:-}" ] && [ -n "${KV_REST_API_TOKEN:-}" ]; then
+elif [ -n "$KV_URL_ENV" ] && [ -n "$KV_TOKEN_ENV" ]; then
   # Headless / OAuth-free path: both credentials supplied in the
-  # environment. Push them straight to prod and SKIP `vercel integration
-  # add upstash-kv` — the only step that requires the browser OAuth flow.
-  # Values flow through stdin (printf is a builtin, no fork), never as
-  # argv, so they stay out of `ps` / /proc/<pid>/cmdline.
+  # environment (captured + CR-stripped into locals at §1b). Push them
+  # straight to prod and SKIP `vercel integration add upstash-kv` — the
+  # only step that requires the browser OAuth flow. Values flow through
+  # stdin (printf is a builtin, no fork), never as argv, so they stay out
+  # of `ps` / /proc/<pid>/cmdline.
   echo "Upstash KV credentials supplied via environment — pushing to prod (skipping integration add)." >&2
-  # Strip a trailing CR (CRLF-terminated env file) before landing, same as
-  # the DASHBOARD_TOKEN path — a stray \r would otherwise poison the value
-  # stored on prod and silently break the relay's KV access.
-  printf '%s' "${KV_REST_API_URL%$'\r'}"   | vercel env add KV_REST_API_URL production
-  printf '%s' "${KV_REST_API_TOKEN%$'\r'}" | vercel env add KV_REST_API_TOKEN production
+  printf '%s' "$KV_URL_ENV"   | vercel env add KV_REST_API_URL production
+  printf '%s' "$KV_TOKEN_ENV" | vercel env add KV_REST_API_TOKEN production
 else
   vercel integration add upstash-kv
 fi
@@ -90,12 +100,8 @@ fi
 # 6. DASHBOARD_TOKEN: collect from the operator on first install; reuse
 #    on subsequent runs. The presence check uses `vercel env ls` parsed
 #    via grep; absence triggers token resolution (env / auto-gen / prompt).
-# Capture any environment-supplied value BEFORE resetting, strip a trailing
-# CR (CRLF-terminated env / pasted line) so it can't poison the bearer that
-# lands on Vercel + in the state file. The full value is NEVER echoed —
-# only its last 3 chars.
-DASHBOARD_TOKEN_ENV="${DASHBOARD_TOKEN:-}"
-DASHBOARD_TOKEN_ENV="${DASHBOARD_TOKEN_ENV%$'\r'}"
+#    The env-supplied value was captured + CR-stripped into DASH_ENV at §1b.
+#    The full value is NEVER echoed — only its last 3 chars.
 DASHBOARD_TOKEN=""
 if vercel env ls production 2>/dev/null | grep -qE '^\s*DASHBOARD_TOKEN\b'; then
   echo "DASHBOARD_TOKEN already set on production — reusing." >&2
@@ -105,7 +111,7 @@ else
   #   2. no env value AND no controlling terminal (headless / agent-driven
   #      install) → auto-generate via `openssl rand -hex 32`.
   #   3. no env value but a TTY is present → prompt the operator on /dev/tty.
-  DASHBOARD_TOKEN="$DASHBOARD_TOKEN_ENV"
+  DASHBOARD_TOKEN="$DASH_ENV"
   if [ -n "$DASHBOARD_TOKEN" ]; then
     echo "DASHBOARD_TOKEN supplied via environment (…${DASHBOARD_TOKEN: -3})." >&2
   # Probe for a controlling terminal by actually OPENING /dev/tty — a node

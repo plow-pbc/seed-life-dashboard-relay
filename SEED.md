@@ -33,7 +33,7 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 ### Upstash KV resource
 
-- The Upstash KV resource the relay's `/api/message` route reads from and writes to. Provisioned via Vercel's marketplace integration (`vercel integration add upstash-kv`).
+- The Upstash KV resource the relay's `/api/message` route reads from and writes to. Resolved in order (see the [KV resolution action](#vercel-project-is-deployed)): reused if already present on prod, else pushed straight to prod when `KV_REST_API_URL` + `KV_REST_API_TOKEN` are env-supplied (headless / OAuth-free), else provisioned via Vercel's marketplace integration (`vercel integration add upstash-kv`) as the browser-OAuth fallback.
 
 ### State file
 
@@ -45,7 +45,7 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 ### DASHBOARD_TOKEN
 
-- The operator-generated bearer the relay validates on every `/api/message` read/write. NOT logged, NOT echoed, NOT included in commits. The SEED prompts for it once (tier-3 per [Tier](https://github.com/plow-pbc/seed/blob/main/SEED.md#tier)) and lands it in two places: Vercel env (production) and the state file — nowhere else.
+- The bearer the relay validates on every `/api/message` read/write. NOT logged, NOT echoed, NOT included in commits. Resolved in order: reused if already on prod (idempotent re-run), else taken from a `DASHBOARD_TOKEN` env value, else no-TTY auto-generated via `openssl rand -hex 32` (headless / agent-driven install), else TTY-prompted from the operator once (tier-3 per [Tier](https://github.com/plow-pbc/seed/blob/main/SEED.md#tier)). It lands in two places: Vercel env (production) and the state file — nowhere else.
 
 ## Actions
 
