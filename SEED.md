@@ -16,7 +16,7 @@ API / per-machine state:
 
 Software:
 
-- Node ≥ 20.6, `git`, `jq`, `vercel` CLI (`npm i -g vercel@latest`). System tools at `/usr/bin/*`: `curl`, `mkdir`.
+- Node ≥ 20.6, `git`, `jq`, `vercel` CLI (`npm i -g vercel@latest`). System tools at `/usr/bin/*`: `curl`, `shasum` (machine-ID hash), `xxd` (salt generation), `openssl` (no-TTY `DASHBOARD_TOKEN` auto-generation) — `ref/deploy.sh` hard-requires these up front and aborts loudly if any is missing. `mkdir` is used too but assumed present as a coreutil, not gated by the check.
 
 Run the following block to deploy the relay. The block is idempotent: re-running redeploys against the same Vercel project and rewrites the state file with the current values.
 
@@ -33,7 +33,7 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 ### Upstash KV resource
 
-- The Upstash KV resource the relay's `/api/message` route reads from and writes to. Provisioned via Vercel's marketplace integration (`vercel integration add upstash-kv`).
+- The Upstash KV resource the relay's `/api/message` route reads from and writes to. Resolved in order (see the [KV resolution action](#vercel-project-is-deployed)): reused if already present on prod, else pushed straight to prod when `KV_REST_API_URL` + `KV_REST_API_TOKEN` are env-supplied (headless / OAuth-free), else provisioned via Vercel's marketplace integration (`vercel integration add upstash-kv`) as the browser-OAuth fallback.
 
 ### State file
 
@@ -45,7 +45,7 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 ### DASHBOARD_TOKEN
 
-- The operator-generated bearer the relay validates on every `/api/message` read/write. NOT logged, NOT echoed, NOT included in commits. The SEED prompts for it once (tier-3 per [Tier](https://github.com/plow-pbc/seed/blob/main/SEED.md#tier)) and lands it in two places: Vercel env (production) and the state file — nowhere else.
+- The bearer the relay validates on every `/api/message` read/write. NOT logged, NOT echoed, NOT included in commits. Resolved in order: reused if already on prod (idempotent re-run), else taken from a `DASHBOARD_TOKEN` env value, else no-TTY auto-generated via `openssl rand -hex 32` (headless / agent-driven install), else TTY-prompted from the operator once (tier-3 per [Tier](https://github.com/plow-pbc/seed/blob/main/SEED.md#tier)). It lands in two places: Vercel env (production) and the state file — nowhere else.
 
 ## Actions
 
@@ -53,8 +53,17 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 - The install action MUST `git clone --depth 1` the viewer repo to a per-household cache directory under `~/Library/Caches/seed-life-dashboard-relay/source/`. Re-runs `git -C "$dir" fetch --depth=1` + `git -C "$dir" reset --hard origin/main` rather than re-cloning to keep the link state in `.vercel/` intact.
 - The install action MUST `vercel link --yes` against a project named `life-dashboard-<short-machine-id>` (or accept an existing link). The `<short-machine-id>` is the first 8 hex chars of `sha256(hostname + per-machine-salt)` — same salt the SEED convention uses for `anon_machine_id`. This keeps multiple households on the same Mac (rare but possible) from colliding on project name.
-- The install action MUST add the Upstash KV integration via `vercel integration add upstash-kv` (surfaced — the integration's first-run requires browser OAuth, can't be fully auto). KV credentials are exposed as `KV_REST_API_URL` + `KV_REST_API_TOKEN` env vars on the deployment; both names match what `ref/deploy.sh`'s idempotent-skip probe looks for.
-- The install action MUST collect `DASHBOARD_TOKEN` from the operator. Tier-3 — the SEED suggests `openssl rand -hex 32` as a copy-pasteable default but does NOT generate one silently (the operator picks). Once collected, the token is added via `vercel env add DASHBOARD_TOKEN production` (value via stdin, never argv).
+- The install action MUST ensure `KV_REST_API_URL` + `KV_REST_API_TOKEN` are set on the production deployment. Resolution order:
+  1. **Already linked** — if both vars are already present on prod (idempotent re-run), the action reuses them and does nothing.
+  2. **Env-supplied (headless / OAuth-free)** — if both `KV_REST_API_URL` and `KV_REST_API_TOKEN` are present in the environment, the action pushes them straight to prod via `vercel env add` (values via stdin, never argv; a trailing CR is stripped) and **SKIPS** `vercel integration add upstash-kv`. This is the path that avoids the browser OAuth flow entirely.
+  3. **Fallback (browser OAuth)** — otherwise the action runs `vercel integration add upstash-kv`, whose first run requires browser OAuth and can't be fully automated. This provisions the Upstash KV resource and exposes the credentials as `KV_REST_API_URL` + `KV_REST_API_TOKEN`.
+- Both var names match what `ref/deploy.sh`'s idempotent-skip probe and the env-supplied path look for.
+- The install action MUST land a `DASHBOARD_TOKEN` on prod when one is not already set. Resolution order:
+  1. **Already set** — if `DASHBOARD_TOKEN` is already present on prod (idempotent re-run), reuse it (see the redeploy note below).
+  2. **Env-supplied** — if `DASHBOARD_TOKEN` is present in the environment, use it (a trailing CR is stripped; only the last 3 chars are ever echoed).
+  3. **Auto-generated (no-TTY)** — if no env value AND no controlling terminal can be opened (`/dev/tty` unavailable — the headless / agent-driven install case), auto-generate via `openssl rand -hex 32`.
+  4. **Fallback (TTY prompt)** — if no env value but a controlling terminal is present, prompt the operator on `/dev/tty` (silent `read -s`). The prompt suggests `openssl rand -hex 32` as a copy-pasteable default; an empty value aborts.
+- Once resolved, the token is added via `vercel env add DASHBOARD_TOKEN production` (value via stdin, never argv).
 - The install action MUST `vercel deploy --prod` and capture the resulting URL.
 - A redeploy MUST NOT regenerate `DASHBOARD_TOKEN`. The operator re-running the install sees a "token already set on Vercel — reusing" message; the value is pulled from `vercel env pull` so the state file stays in sync.
 
