@@ -25,7 +25,8 @@ done
 
 # 1b. Capture any env-supplied secrets into UNEXPORTED locals, strip a
 #     trailing CR (CRLF env file / pasted line), then `unset` the exported
-#     originals BEFORE the first external command (`vercel whoami` below).
+#     originals BEFORE any external command (the machine-ID
+#     `mkdir`/`xxd`/`shasum` block and `vercel whoami`, all below).
 #     The script passes every secret to `vercel env add` via stdin, never
 #     argv, so the `vercel`/`git` subprocesses don't need them in the env —
 #     unsetting keeps them out of inherited child environments entirely

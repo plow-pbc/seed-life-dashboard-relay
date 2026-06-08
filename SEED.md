@@ -16,7 +16,7 @@ API / per-machine state:
 
 Software:
 
-- Node ≥ 20.6, `git`, `jq`, `vercel` CLI (`npm i -g vercel@latest`). System tools at `/usr/bin/*`: `curl`, `mkdir`, `shasum` (machine-ID hash), `xxd` (salt generation), `openssl` (no-TTY `DASHBOARD_TOKEN` auto-generation). `ref/deploy.sh` hard-requires all of these up front and aborts loudly if any is missing.
+- Node ≥ 20.6, `git`, `jq`, `vercel` CLI (`npm i -g vercel@latest`). System tools at `/usr/bin/*`: `curl`, `shasum` (machine-ID hash), `xxd` (salt generation), `openssl` (no-TTY `DASHBOARD_TOKEN` auto-generation) — `ref/deploy.sh` hard-requires these up front and aborts loudly if any is missing. `mkdir` is used too but assumed present as a coreutil, not gated by the check.
 
 Run the following block to deploy the relay. The block is idempotent: re-running redeploys against the same Vercel project and rewrites the state file with the current values.
 
