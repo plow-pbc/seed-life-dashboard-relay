@@ -60,13 +60,21 @@ if ! vercel whoami >/dev/null 2>&1; then
   exit 1
 fi
 
-# 3. Get / refresh the viewer source.
+# 3. Get / refresh the viewer source. Honor SEED_BRANCH (default: main) so the
+#    whole SEED graph can be installed from one feature branch; fall back to main
+#    if the viewer remote lacks that branch.
+SEED_BRANCH="${SEED_BRANCH:-main}"
 mkdir -p "$(dirname "$SRC_CACHE")"
 if [ -d "$SRC_CACHE/.git" ]; then
-  git -C "$SRC_CACHE" fetch --depth=1 origin main
-  git -C "$SRC_CACHE" reset --hard origin/main
+  if git -C "$SRC_CACHE" fetch --depth=1 origin "$SEED_BRANCH" 2>/dev/null; then
+    git -C "$SRC_CACHE" reset --hard "origin/$SEED_BRANCH"
+  else
+    git -C "$SRC_CACHE" fetch --depth=1 origin main
+    git -C "$SRC_CACHE" reset --hard origin/main
+  fi
 else
-  git clone --depth 1 "$VIEWER_URL" "$SRC_CACHE"
+  git clone --depth 1 --branch "$SEED_BRANCH" "$VIEWER_URL" "$SRC_CACHE" 2>/dev/null \
+    || git clone --depth 1 "$VIEWER_URL" "$SRC_CACHE"
 fi
 cd "$SRC_CACHE/ref/app"
 
