@@ -113,7 +113,7 @@ else
   #   3. no env value but a TTY is present → prompt the operator on /dev/tty.
   DASHBOARD_TOKEN="$DASH_ENV"
   if [ -n "$DASHBOARD_TOKEN" ]; then
-    echo "DASHBOARD_TOKEN supplied via environment (…${DASHBOARD_TOKEN: -3})." >&2
+    echo "DASHBOARD_TOKEN supplied via environment." >&2
   # Probe for a controlling terminal by actually OPENING /dev/tty — a node
   # can exist with rwx bits yet fail to open with no controlling terminal
   # (the headless / agent-harness case); [ -r ]/[ -w ] do not catch that.
