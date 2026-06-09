@@ -67,10 +67,10 @@ SEED_BRANCH="${SEED_BRANCH:-main}"
 mkdir -p "$(dirname "$SRC_CACHE")"
 if [ -d "$SRC_CACHE/.git" ]; then
   if git -C "$SRC_CACHE" fetch --depth=1 origin "$SEED_BRANCH" 2>/dev/null; then
-    git -C "$SRC_CACHE" reset --hard "origin/$SEED_BRANCH"
+    git -C "$SRC_CACHE" reset --hard FETCH_HEAD
   else
     git -C "$SRC_CACHE" fetch --depth=1 origin main
-    git -C "$SRC_CACHE" reset --hard origin/main
+    git -C "$SRC_CACHE" reset --hard FETCH_HEAD
   fi
 else
   git clone --depth 1 --branch "$SEED_BRANCH" "$VIEWER_URL" "$SRC_CACHE" 2>/dev/null \
