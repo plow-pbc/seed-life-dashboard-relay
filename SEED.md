@@ -23,9 +23,9 @@ Software:
 | kind | label | phase | satisfy | bypass |
 |---|---|---|---|---|
 | account | Vercel account | preflight | `vercel login` (browser OAuth) | `VERCEL_TOKEN` |
-| tool | `vercel` CLI, Node ≥ 20.6, `git`, `jq` | preflight | `npm i -g vercel@latest`; install Node / git / jq | |
+| tool | `vercel` CLI, Node ≥ 20.6, `git`, `jq`, `curl`, `shasum`, `xxd`, `openssl` | preflight | `npm i -g vercel@latest`; install Node / git / jq; `curl` / `shasum` / `xxd` / `openssl` ship at `/usr/bin/*` on macOS | |
 | auth | Upstash KV provisioning (first run needs browser OAuth) | in-flow | `vercel integration add upstash-kv` (browser OAuth) | `KV_REST_API_URL`+`KV_REST_API_TOKEN` |
-| input | `DASHBOARD_TOKEN` (relay bearer) | preflight | `DASHBOARD_TOKEN` env, else auto-generated `openssl rand -hex 32` | `DASHBOARD_TOKEN` |
+| input | `DASHBOARD_TOKEN` (relay bearer) | preflight | `DASHBOARD_TOKEN` env, else auto-generated `openssl rand -hex 32` | |
 
 Run the following block to deploy the relay. The block is idempotent: re-running redeploys against the same Vercel project and rewrites the state file with the current values.
 
