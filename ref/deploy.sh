@@ -165,6 +165,13 @@ DEPLOY_URL=$(printf '%s\n' "$DEPLOY_OUT" \
              | tail -1 || true)
 [ -n "$DEPLOY_URL" ] || { echo "vercel deploy failed to return a URL" >&2; exit 1; }
 
+# Use the stable PRODUCTION ALIAS for the state-file endpoint, not the
+# per-deployment URL vercel just returned: the per-deployment URL is gated by
+# Vercel Deployment Protection (SSO 401) for the kiosk + agent that read/write
+# /api/message, while `https://<project>.vercel.app` is the public production
+# domain. DEPLOY_URL above stays purely as the deploy-succeeded check.
+ENDPOINT_URL="https://$PROJECT_NAME.vercel.app"
+
 # 8. Resolve the DASHBOARD_TOKEN value for the state file. On a reused
 #    token (the common idempotent re-run case) the value is on Vercel,
 #    not in $DASHBOARD_TOKEN — we have to ask Vercel for it. `vercel env
@@ -197,12 +204,12 @@ TMP_STATE=$(mktemp "$APP_SUPPORT/.state.json.XXXXXX")
 # `-Rs` reads stdin as one raw string into `.`; we strip the trailing
 # newline `printf '%s'` already omits and assemble the JSON from there.
 printf '%s' "$DASHBOARD_TOKEN" \
-  | jq -Rs --arg url "$DEPLOY_URL" '{endpoint_url: $url, dashboard_token: .}' \
+  | jq -Rs --arg url "$ENDPOINT_URL" '{endpoint_url: $url, dashboard_token: .}' \
   > "$TMP_STATE"
 chmod 600 "$TMP_STATE"
 mv "$TMP_STATE" "$STATE_FILE"
 
 echo "" >&2
 echo "Relay deployed:" >&2
-echo "  endpoint_url: $DEPLOY_URL" >&2
+echo "  endpoint_url: $ENDPOINT_URL" >&2
 echo "  state file:   $STATE_FILE (mode 600)" >&2
