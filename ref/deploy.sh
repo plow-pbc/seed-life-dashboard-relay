@@ -70,10 +70,12 @@ else
 fi
 cd "$SRC_CACHE/ref/app"
 
-# 4. Link / re-link the Vercel project.
-if [ ! -s ".vercel/project.json" ]; then
-  vercel link --yes --project "$PROJECT_NAME"
-fi
+# 4. Link the Vercel project. Unconditional (not guarded on an existing
+#    .vercel/project.json): a stale cached link to a DIFFERENT project would
+#    otherwise let `vercel deploy --prod` update one project while ENDPOINT_URL
+#    (derived from $PROJECT_NAME below) points consumers at another. Relinking to
+#    $PROJECT_NAME every run keeps the deployed project and the endpoint single-truth.
+vercel link --yes --project "$PROJECT_NAME"
 
 # 5. Upstash KV integration. Probe for existing provisioning via the
 #    FULL credential pair — a partial set (URL without TOKEN or vice
@@ -104,21 +106,28 @@ fi
 #    The env-supplied value was captured + CR-stripped into DASH_ENV at §1b.
 #    The full value is NEVER echoed — only its last 3 chars.
 DASHBOARD_TOKEN=""
-if vercel env ls production 2>/dev/null | grep -qE '^\s*DASHBOARD_TOKEN\b'; then
-  echo "DASHBOARD_TOKEN already set on production — reusing." >&2
-else
-  # Resolution order:
-  #   1. $DASHBOARD_TOKEN supplied in the environment → use it.
-  #   2. no env value AND no controlling terminal (headless / agent-driven
-  #      install) → auto-generate via `openssl rand -hex 32`.
-  #   3. no env value but a TTY is present → prompt the operator on /dev/tty.
+if [ -n "$DASH_ENV" ]; then
+  # Env-supplied token is AUTHORITATIVE. Make Vercel prod match it — overwriting
+  # any existing var, including a write-only "Sensitive" one whose value
+  # `vercel env pull` cannot read back. That unreadable-Sensitive case is the
+  # exact failure that otherwise forces regenerating the token on every redeploy
+  # (and breaks token-consistency with downstream consumers); rm-then-add is the
+  # only way to change an existing var's value via the CLI.
   DASHBOARD_TOKEN="$DASH_ENV"
-  if [ -n "$DASHBOARD_TOKEN" ]; then
-    echo "DASHBOARD_TOKEN supplied via environment." >&2
+  echo "DASHBOARD_TOKEN supplied via environment — making it authoritative on production." >&2
+  vercel env rm DASHBOARD_TOKEN production --yes >/dev/null 2>&1 || true
+  printf '%s' "$DASHBOARD_TOKEN" | vercel env add DASHBOARD_TOKEN production \
+    || { echo "DASHBOARD_TOKEN removed but re-add FAILED — production now has NO bearer; re-run this deploy to restore it" >&2; exit 1; }
+elif vercel env ls production 2>/dev/null | grep -qE '^\s*DASHBOARD_TOKEN\b'; then
+  echo "DASHBOARD_TOKEN already set on production — reusing (value resolved from Vercel below)." >&2
+else
+  # No env value and not yet on Vercel:
+  #   - a TTY is present → prompt the operator on /dev/tty.
+  #   - no controlling terminal (headless / agent-driven) → auto-generate.
   # Probe for a controlling terminal by actually OPENING /dev/tty — a node
   # can exist with rwx bits yet fail to open with no controlling terminal
   # (the headless / agent-harness case); [ -r ]/[ -w ] do not catch that.
-  elif ( : <>/dev/tty ) 2>/dev/null; then
+  if ( : <>/dev/tty ) 2>/dev/null; then
     echo "" >&2
     echo "Generate a DASHBOARD_TOKEN (the bearer the relay validates on /api/message)." >&2
     echo "Suggested: openssl rand -hex 32" >&2
@@ -149,6 +158,13 @@ DEPLOY_URL=$(printf '%s\n' "$DEPLOY_OUT" \
              | grep -oE 'https://[A-Za-z0-9.-]+\.vercel\.app' \
              | tail -1 || true)
 [ -n "$DEPLOY_URL" ] || { echo "vercel deploy failed to return a URL" >&2; exit 1; }
+
+# Use the stable PRODUCTION ALIAS for the state-file endpoint, not the
+# per-deployment URL vercel just returned: the per-deployment URL is gated by
+# Vercel Deployment Protection (SSO 401) for the kiosk + agent that read/write
+# /api/message, while `https://<project>.vercel.app` is the public production
+# domain. DEPLOY_URL above stays purely as the deploy-succeeded check.
+ENDPOINT_URL="https://$PROJECT_NAME.vercel.app"
 
 # 8. Resolve the DASHBOARD_TOKEN value for the state file. On a reused
 #    token (the common idempotent re-run case) the value is on Vercel,
@@ -182,12 +198,12 @@ TMP_STATE=$(mktemp "$APP_SUPPORT/.state.json.XXXXXX")
 # `-Rs` reads stdin as one raw string into `.`; we strip the trailing
 # newline `printf '%s'` already omits and assemble the JSON from there.
 printf '%s' "$DASHBOARD_TOKEN" \
-  | jq -Rs --arg url "$DEPLOY_URL" '{endpoint_url: $url, dashboard_token: .}' \
+  | jq -Rs --arg url "$ENDPOINT_URL" '{endpoint_url: $url, dashboard_token: .}' \
   > "$TMP_STATE"
 chmod 600 "$TMP_STATE"
 mv "$TMP_STATE" "$STATE_FILE"
 
 echo "" >&2
 echo "Relay deployed:" >&2
-echo "  endpoint_url: $DEPLOY_URL" >&2
+echo "  endpoint_url: $ENDPOINT_URL" >&2
 echo "  state file:   $STATE_FILE (mode 600)" >&2
