@@ -122,7 +122,8 @@ if [ -n "$DASH_ENV" ]; then
   DASHBOARD_TOKEN="$DASH_ENV"
   echo "DASHBOARD_TOKEN supplied via environment — making it authoritative on production." >&2
   vercel env rm DASHBOARD_TOKEN production --yes >/dev/null 2>&1 || true
-  printf '%s' "$DASHBOARD_TOKEN" | vercel env add DASHBOARD_TOKEN production
+  printf '%s' "$DASHBOARD_TOKEN" | vercel env add DASHBOARD_TOKEN production \
+    || { echo "DASHBOARD_TOKEN removed but re-add FAILED — production now has NO bearer; re-run this deploy to restore it" >&2; exit 1; }
 elif vercel env ls production 2>/dev/null | grep -qE '^\s*DASHBOARD_TOKEN\b'; then
   echo "DASHBOARD_TOKEN already set on production — reusing (value resolved from Vercel below)." >&2
 else
