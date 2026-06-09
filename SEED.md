@@ -18,6 +18,15 @@ Software:
 
 - Node ≥ 20.6, `git`, `jq`, `vercel` CLI (`npm i -g vercel@latest`). System tools at `/usr/bin/*`: `curl`, `shasum` (machine-ID hash), `xxd` (salt generation), `openssl` (no-TTY `DASHBOARD_TOKEN` auto-generation) — `ref/deploy.sh` hard-requires these up front and aborts loudly if any is missing. `mkdir` is used too but assumed present as a coreutil, not gated by the check.
 
+### Requirements
+
+| kind | label | phase | satisfy | bypass |
+|---|---|---|---|---|
+| account | Vercel account | preflight | `vercel login` (browser OAuth) | `VERCEL_TOKEN` |
+| tool | `vercel` CLI, Node ≥ 20.6, `git`, `jq` | preflight | `npm i -g vercel@latest`; install Node / git / jq | |
+| auth | Upstash KV provisioning (first run needs browser OAuth) | in-flow | `vercel integration add upstash-kv` (browser OAuth) | `KV_REST_API_URL`+`KV_REST_API_TOKEN` |
+| input | `DASHBOARD_TOKEN` (relay bearer) | preflight | `DASHBOARD_TOKEN` env, else auto-generated `openssl rand -hex 32` | `DASHBOARD_TOKEN` |
+
 Run the following block to deploy the relay. The block is idempotent: re-running redeploys against the same Vercel project and rewrites the state file with the current values.
 
 ```bash
@@ -80,7 +89,7 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 - The state file's `dashboard_token` value is the same one set as the Vercel env var — single source of truth for the bearer. Consumers read it to derive their own configuration.
 
-## Verify
+## Verification
 
 1. **State file present and well-formed.** Does `~/Library/Application Support/seed-life-dashboard-relay/state.json` exist with mode `600`, parse as JSON, and contain non-empty `endpoint_url` (HTTPS) and `dashboard_token` strings? Expected: yes.
 2. **Endpoint reachable.** Run `bash ref/verify.sh` (or the equivalent — see [`ref/verify.sh`](ref/verify.sh) for the exact mode-600 `curl -K`-config pattern that keeps `dashboard_token` out of process argv). The verifier asserts `GET <endpoint_url>/api/message` with bearer returns HTTP 200 with a JSON body (empty list `[]` is valid — relay was just deployed). Do NOT inline `curl -H "Authorization: Bearer $(jq -r .dashboard_token ...)"` literally: that puts the household token in process argv (visible via `ps` / `/proc/<pid>/cmdline`). Expected: yes.
@@ -92,7 +101,7 @@ A deterministic bash implementation of these three prompts lives at [`ref/verify
 
 (default)
 
-## Open
+## Open Items
 
 - The Vercel-deployable source lives in `seed-life-dashboard-viewer/ref/app/`. Extraction to its own repo `life-dashboard-relay-app` becomes the right move if a third consumer materializes (hosted multi-tenant, mobile companion). For v1 the clone-the-viewer approach keeps the source single-truth.
 

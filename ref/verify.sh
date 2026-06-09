@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deterministic implementation of SEED.md ## Verify.
+# Deterministic implementation of SEED.md ## Verification.
 
 set -euo pipefail
 
