@@ -60,28 +60,29 @@ if ! vercel whoami >/dev/null 2>&1; then
   exit 1
 fi
 
-# 3. Get / refresh the viewer source. Honor SEED_BRANCH (default: main) so the
-#    whole SEED graph can be installed from one feature branch; fall back to main
-#    if the viewer remote lacks that branch.
+# 3. Get / refresh the viewer source at SEED_BRANCH (default: main) so the whole
+#    SEED graph installs from one branch. NO fallback to main: if SEED_BRANCH is
+#    set but absent on the viewer remote, fail loudly (set -e) rather than
+#    silently building from main — a mixed-source install (viewer on main, the
+#    rest on the feature branch) hides the missing-branch setup error. reset to
+#    FETCH_HEAD (always set by fetch) sidesteps the single-branch-shallow-cache
+#    missing-tracking-ref trap.
 SEED_BRANCH="${SEED_BRANCH:-main}"
 mkdir -p "$(dirname "$SRC_CACHE")"
 if [ -d "$SRC_CACHE/.git" ]; then
-  if git -C "$SRC_CACHE" fetch --depth=1 origin "$SEED_BRANCH" 2>/dev/null; then
-    git -C "$SRC_CACHE" reset --hard FETCH_HEAD
-  else
-    git -C "$SRC_CACHE" fetch --depth=1 origin main
-    git -C "$SRC_CACHE" reset --hard FETCH_HEAD
-  fi
+  git -C "$SRC_CACHE" fetch --depth=1 origin "$SEED_BRANCH"
+  git -C "$SRC_CACHE" reset --hard FETCH_HEAD
 else
-  git clone --depth 1 --branch "$SEED_BRANCH" "$VIEWER_URL" "$SRC_CACHE" 2>/dev/null \
-    || git clone --depth 1 "$VIEWER_URL" "$SRC_CACHE"
+  git clone --depth 1 --branch "$SEED_BRANCH" "$VIEWER_URL" "$SRC_CACHE"
 fi
 cd "$SRC_CACHE/ref/app"
 
-# 4. Link / re-link the Vercel project.
-if [ ! -s ".vercel/project.json" ]; then
-  vercel link --yes --project "$PROJECT_NAME"
-fi
+# 4. Link the Vercel project. Unconditional (not guarded on an existing
+#    .vercel/project.json): a stale cached link to a DIFFERENT project would
+#    otherwise let `vercel deploy --prod` update one project while ENDPOINT_URL
+#    (derived from $PROJECT_NAME below) points consumers at another. Relinking to
+#    $PROJECT_NAME every run keeps the deployed project and the endpoint single-truth.
+vercel link --yes --project "$PROJECT_NAME"
 
 # 5. Upstash KV integration. Probe for existing provisioning via the
 #    FULL credential pair — a partial set (URL without TOKEN or vice
