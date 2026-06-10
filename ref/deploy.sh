@@ -97,7 +97,15 @@ elif [ -n "$KV_URL_ENV" ] && [ -n "$KV_TOKEN_ENV" ]; then
   printf '%s' "$KV_URL_ENV"   | vercel env add KV_REST_API_URL production
   printf '%s' "$KV_TOKEN_ENV" | vercel env add KV_REST_API_TOKEN production
 else
-  vercel integration add upstash-kv
+  # `--plan paid` (Upstash's free-tier Pay-As-You-Go) provisions the resource
+  # non-interactively: the bare command defers PLAN SELECTION to a browser, and
+  # that prompt is the only thing that made this step need a human. `-e production`
+  # connects the new resource's KV_REST_API_* to prod, and `</dev/null` keeps it
+  # fail-fast rather than hanging if input is ever needed. A first-EVER connection
+  # of the Upstash integration to a brand-new Vercel account may still need a
+  # one-time browser consent; every run after that (and any account already using
+  # Upstash) is fully headless.
+  vercel integration add upstash-kv --plan paid -e production </dev/null
 fi
 
 # 6. DASHBOARD_TOKEN: collect from the operator on first install; reuse
