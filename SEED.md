@@ -16,7 +16,7 @@ API / per-machine state:
 
 Software:
 
-- Node ≥ 20.6, `git`, `jq`, `vercel` CLI (`npm i -g vercel@latest`). System tools at `/usr/bin/*`: `curl`, `shasum` (machine-ID hash), `xxd` (salt generation), `openssl` (no-TTY `DASHBOARD_TOKEN` auto-generation) — `ref/deploy.sh` hard-requires these up front and aborts loudly if any is missing. `mkdir` is used too but assumed present as a coreutil, not gated by the check.
+- Node ≥ 20.6, `git`, `jq`, `vercel` CLI (`npm i -g vercel@latest`). System tools at `/usr/bin/*`: `curl`, `shasum` (machine-ID hash), `xxd` (salt generation), `openssl` (`DASHBOARD_TOKEN` minting) — `ref/deploy.sh` hard-requires these up front and aborts loudly if any is missing. `mkdir` is used too but assumed present as a coreutil, not gated by the check.
 
 ### Requirements
 
@@ -54,7 +54,7 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 ### DASHBOARD_TOKEN
 
-- The bearer the relay validates on every `/api/message` read/write. NOT logged, NOT echoed, NOT included in commits. Resolved in order: an **env-supplied `DASHBOARD_TOKEN` is authoritative** — it overwrites any existing prod var (including a write-only Sensitive one that `vercel env pull` cannot read back) via `vercel env rm` then `vercel env add`; else reused if already on prod (the no-env redeploy case); else no-TTY auto-generated via `openssl rand -hex 32` (headless / agent-driven install); else TTY-prompted from the operator once (tier-3 per [Tier](https://github.com/plow-pbc/seed/blob/main/SEED.md#tier)). It lands in two places: Vercel env (production) and the state file — nowhere else.
+- The bearer the relay validates on every `/api/message` read/write. NOT logged, NOT echoed, NOT included in commits. Resolved in order: an **env-supplied `DASHBOARD_TOKEN` is authoritative** (the operator-pinned case); otherwise **every deploy mints a fresh token** via `openssl rand -hex 32` — no reuse, no pull-back. Rotation is invisible to consumers: they read the state file, which is rewritten with the same value each run. It lands in two places: Vercel env (production) and the state file — nowhere else.
 
 ## Actions
 
@@ -67,14 +67,11 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
   2. **Env-supplied (headless / OAuth-free)** — if both `KV_REST_API_URL` and `KV_REST_API_TOKEN` are present in the environment, the action pushes them straight to prod via `vercel env add` (values via stdin, never argv; a trailing CR is stripped) and **SKIPS** `vercel integration add upstash-kv`. This is the path that avoids the browser OAuth flow entirely.
   3. **Fallback (browser OAuth)** — otherwise the action runs `vercel integration add upstash-kv`, whose first run requires browser OAuth and can't be fully automated. This provisions the Upstash KV resource and exposes the credentials as `KV_REST_API_URL` + `KV_REST_API_TOKEN`.
 - Both var names match what `ref/deploy.sh`'s idempotent-skip probe and the env-supplied path look for.
-- The install action MUST land a `DASHBOARD_TOKEN` on prod. Resolution order:
-  1. **Env-supplied (authoritative)** — if `DASHBOARD_TOKEN` is present in the environment, it WINS: the action `vercel env rm DASHBOARD_TOKEN production --yes` then `vercel env add` to overwrite whatever is on prod (a trailing CR is stripped; only the last 3 chars are ever echoed). This is the only way to change an existing write-only Sensitive var, and it keeps token-consistency with downstream consumers regardless of what was on prod before.
-  2. **Already set (no-env redeploy)** — only when NO env value is supplied: if `DASHBOARD_TOKEN` is already present on prod, reuse it (see the redeploy note below).
-  3. **Auto-generated (no-TTY)** — no env value, not on prod, AND no controlling terminal (`/dev/tty` unavailable — the headless / agent-driven case) → auto-generate via `openssl rand -hex 32`.
-  4. **Fallback (TTY prompt)** — no env value, not on prod, but a controlling terminal is present → prompt the operator on `/dev/tty` (silent `read -s`). The prompt suggests `openssl rand -hex 32`; an empty value aborts.
-- The newly-resolved token is added via `vercel env add DASHBOARD_TOKEN production` (value via stdin, never argv).
+- The install action MUST land a `DASHBOARD_TOKEN` on prod, BEFORE `vercel deploy --prod` (env vars are snapshotted into the deployment at build time). Resolution order:
+  1. **Env-supplied (authoritative)** — if `DASHBOARD_TOKEN` is present in the environment, it WINS (a trailing CR is stripped; only the last 3 chars are ever echoed).
+  2. **Fresh-minted** — otherwise the action generates one via `openssl rand -hex 32`. Every no-env deploy rotates; consumers are unaffected (they read the state file written the same run).
+- Either way the token is landed via `vercel env rm DASHBOARD_TOKEN production --yes` then `vercel env add` (value via stdin, never argv) — rm-then-add is the only way to overwrite a var a prior deploy left on prod.
 - The install action MUST `vercel deploy --prod`; the returned per-deployment URL is captured only as the deploy-succeeded check — NOT as the state-file endpoint (see [State file](#state-file)).
-- A **no-env** redeploy MUST NOT regenerate `DASHBOARD_TOKEN`: the operator sees a "token already set on Vercel — reusing" message and the value is pulled via `vercel env pull` so the state file stays in sync. (An env-supplied redeploy instead overwrites per rule 1.)
 
 ### State file is landed
 

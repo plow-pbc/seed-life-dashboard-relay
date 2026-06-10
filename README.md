@@ -9,11 +9,11 @@ Installing this SEED:
 1. Clones the viewer repo to access its dual-purpose `ref/app/` source.
 2. Surfaces `vercel login` (browser OAuth) only if not already logged in.
 3. Ensures Upstash KV credentials (`KV_REST_API_URL` + `KV_REST_API_TOKEN`) are on prod. If both are already supplied in the environment, they are pushed straight to prod and the browser-OAuth `vercel integration add upstash-kv` step is **skipped**; otherwise that integration step is the fallback.
-4. Resolves a `DASHBOARD_TOKEN` (the bearer the relay validates on every `/api/message` write/read): an env-supplied value is authoritative and overwrites whatever is on prod; otherwise an already-set prod token is reused (the no-env redeploy case); otherwise it's auto-generated via `openssl rand -hex 32` when there's no controlling terminal (headless install); otherwise prompted interactively on `/dev/tty`.
-5. Runs `vercel env add` + `vercel deploy --prod`.
+4. Resolves a `DASHBOARD_TOKEN` (the bearer the relay validates on every `/api/message` write/read): an env-supplied value is authoritative; otherwise every deploy mints a fresh one via `openssl rand -hex 32`. Rotation is invisible to consumers — they read the state file written the same run.
+5. Lands the token (rm-then-add) and runs `vercel deploy --prod`.
 6. Writes the production-alias URL (`https://<project>.vercel.app`) + bearer to `~/Library/Application Support/seed-life-dashboard-relay/state.json` (mode 600) so the agent SEED and the viewer SEED can wire themselves up without re-prompting the operator.
 
-A fully headless / agent-driven install (env-supplied KV credentials + env-supplied or auto-generated `DASHBOARD_TOKEN`, already logged in to Vercel) requires no browser OAuth and no interactive prompt.
+An install that is already logged in to Vercel (with env-supplied KV credentials, or KV already linked) requires no browser OAuth and no interactive prompt — there is no prompt path at all.
 
 This state file is the **host-side handoff** between SEEDs. It is NOT the same as Plow's VM-side `/config/secrets/dashboard-{endpoint-url,token}` runtime files — those are materialized by [`seed-life-dashboard-agent`](https://github.com/plow-pbc/seed-life-dashboard-agent) when it reads this state file and writes single-value files into `<plow-app-support>/agent-runtime/secrets/` (which plowd bind-mounts into the VM at `/config/secrets/`). This SEED owns the host-side handoff; the agent SEED owns the VM-runtime materialization.
 
