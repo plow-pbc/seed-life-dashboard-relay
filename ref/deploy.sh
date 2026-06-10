@@ -3,9 +3,9 @@
 # seed-life-dashboard-relay — deploy the Vercel message relay.
 #
 # Idempotent: re-running redeploys against the same Vercel project and
-# rewrites the state file with the current values. A redeploy reuses
-# DASHBOARD_TOKEN (does not regenerate); the operator picks the value
-# once at first install.
+# rewrites the state file with the current values. Each deploy mints a
+# fresh DASHBOARD_TOKEN unless one is env-supplied (the operator-pinned
+# case); consumers read the state file, so rotation is invisible to them.
 
 set -euo pipefail
 
@@ -16,8 +16,8 @@ SRC_CACHE="$HOME/Library/Caches/seed-life-dashboard-relay/source"
 VIEWER_URL="https://github.com/plow-pbc/seed-life-dashboard-viewer.git"
 
 # 1. Required tools. Checked BEFORE first use of any of them (xxd/shasum
-#    in the machine-ID block, openssl in the headless DASHBOARD_TOKEN
-#    auto-generation path) so a missing tool fails loudly up front.
+#    in the machine-ID block, openssl in the DASHBOARD_TOKEN minting
+#    step) so a missing tool fails loudly up front.
 for tool in vercel git jq curl shasum xxd openssl; do
   command -v "$tool" >/dev/null \
     || { echo "missing required tool: $tool" >&2; exit 1; }
@@ -108,54 +108,24 @@ else
   vercel integration add upstash-kv --plan paid -e production </dev/null
 fi
 
-# 6. DASHBOARD_TOKEN: collect from the operator on first install; reuse
-#    on subsequent runs. The presence check uses `vercel env ls` parsed
-#    via grep; absence triggers token resolution (env / auto-gen / prompt).
-#    The env-supplied value was captured + CR-stripped into DASH_ENV at §1b.
-#    The full value is NEVER echoed — only its last 3 chars.
-DASHBOARD_TOKEN=""
+# 6. DASHBOARD_TOKEN: an env-supplied value is AUTHORITATIVE (the operator-
+#    pinned case, captured + CR-stripped into DASH_ENV at §1b); otherwise
+#    every deploy mints a fresh token. No reuse, no pull-back: consumers
+#    read the state file written later this run, so rotation is invisible
+#    to them. The full value is NEVER echoed — only its last 3 chars.
 if [ -n "$DASH_ENV" ]; then
-  # Env-supplied token is AUTHORITATIVE. Make Vercel prod match it — overwriting
-  # any existing var, including a write-only "Sensitive" one whose value
-  # `vercel env pull` cannot read back. That unreadable-Sensitive case is the
-  # exact failure that otherwise forces regenerating the token on every redeploy
-  # (and breaks token-consistency with downstream consumers); rm-then-add is the
-  # only way to change an existing var's value via the CLI.
   DASHBOARD_TOKEN="$DASH_ENV"
   echo "DASHBOARD_TOKEN supplied via environment — making it authoritative on production." >&2
-  vercel env rm DASHBOARD_TOKEN production --yes >/dev/null 2>&1 || true
-  printf '%s' "$DASHBOARD_TOKEN" | vercel env add DASHBOARD_TOKEN production \
-    || { echo "DASHBOARD_TOKEN removed but re-add FAILED — production now has NO bearer; re-run this deploy to restore it" >&2; exit 1; }
-elif vercel env ls production 2>/dev/null | grep -qE '^\s*DASHBOARD_TOKEN\b'; then
-  echo "DASHBOARD_TOKEN already set on production — reusing (value resolved from Vercel below)." >&2
 else
-  # No env value and not yet on Vercel:
-  #   - a TTY is present → prompt the operator on /dev/tty.
-  #   - no controlling terminal (headless / agent-driven) → auto-generate.
-  # Probe for a controlling terminal by actually OPENING /dev/tty — a node
-  # can exist with rwx bits yet fail to open with no controlling terminal
-  # (the headless / agent-harness case); [ -r ]/[ -w ] do not catch that.
-  if ( : <>/dev/tty ) 2>/dev/null; then
-    echo "" >&2
-    echo "Generate a DASHBOARD_TOKEN (the bearer the relay validates on /api/message)." >&2
-    echo "Suggested: openssl rand -hex 32" >&2
-    echo "Type or paste the value (input will NOT be echoed), then press Enter:" >&2
-    # `-s` silent: terminal doesn't echo as the operator types/pastes.
-    # `printf '\n'` after read because -s eats the operator's Enter
-    # keystroke too, leaving the cursor on the same line.
-    IFS= read -r -s DASHBOARD_TOKEN </dev/tty
-    printf '\n' >&2
-    DASHBOARD_TOKEN="${DASHBOARD_TOKEN%$'\r'}"
-    [ -n "$DASHBOARD_TOKEN" ] || {
-      echo "no DASHBOARD_TOKEN supplied — aborting" >&2
-      exit 1
-    }
-  else
-    DASHBOARD_TOKEN=$(openssl rand -hex 32)
-    echo "No DASHBOARD_TOKEN in env and no controlling terminal — auto-generated one (…${DASHBOARD_TOKEN: -3})." >&2
-  fi
-  printf '%s' "$DASHBOARD_TOKEN" | vercel env add DASHBOARD_TOKEN production
+  DASHBOARD_TOKEN=$(openssl rand -hex 32)
+  echo "Minted a fresh DASHBOARD_TOKEN (…${DASHBOARD_TOKEN: -3})." >&2
 fi
+# rm-then-add — the only way to overwrite an existing prod var via the CLI
+# (a prior deploy's var would make a plain `env add` fail). Value flows via
+# stdin (printf is a builtin, no fork), never argv.
+vercel env rm DASHBOARD_TOKEN production --yes >/dev/null 2>&1 || true
+printf '%s' "$DASHBOARD_TOKEN" | vercel env add DASHBOARD_TOKEN production \
+  || { echo "DASHBOARD_TOKEN env add FAILED — the prod env var may be missing or stale; re-run this deploy" >&2; exit 1; }
 
 # 7. Deploy. `vercel deploy` may emit trailing diagnostic lines (inspect
 #    hints, warnings) after the deployment URL, so `tail -1` can poison
@@ -174,26 +144,7 @@ DEPLOY_URL=$(printf '%s\n' "$DEPLOY_OUT" \
 # domain. DEPLOY_URL above stays purely as the deploy-succeeded check.
 ENDPOINT_URL="https://$PROJECT_NAME.vercel.app"
 
-# 8. Resolve the DASHBOARD_TOKEN value for the state file. On a reused
-#    token (the common idempotent re-run case) the value is on Vercel,
-#    not in $DASHBOARD_TOKEN — we have to ask Vercel for it. `vercel env
-#    pull` writes it (plus all other prod vars) to a local file; we
-#    extract the one var and shred the file.
-if [ -z "$DASHBOARD_TOKEN" ]; then
-  ENV_PULL=$(mktemp -t vercel-env)
-  trap 'rm -f "$ENV_PULL"' EXIT
-  vercel env pull "$ENV_PULL" --environment=production --yes >/dev/null
-  DASHBOARD_TOKEN=$(grep -E '^DASHBOARD_TOKEN=' "$ENV_PULL" \
-                    | sed 's/^DASHBOARD_TOKEN=//; s/^"//; s/"$//')
-  rm -f "$ENV_PULL"
-  trap - EXIT
-fi
-[ -n "$DASHBOARD_TOKEN" ] || {
-  echo "could not resolve DASHBOARD_TOKEN from Vercel env after deploy" >&2
-  exit 1
-}
-
-# 9. Land the state file atomically at mode 600. The temp file lives
+# 8. Land the state file atomically at mode 600. The temp file lives
 #    inside $APP_SUPPORT (not /tmp) so the final `mv` is a same-
 #    filesystem atomic rename — mktemp -t targets $TMPDIR which on
 #    macOS is /var/folders/..., a different volume from
