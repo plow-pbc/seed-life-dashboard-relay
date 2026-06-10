@@ -6,7 +6,7 @@
 # rewrites the state file with the current values. A redeploy reuses
 # DASHBOARD_TOKEN when Vercel can read it back; a write-only "Sensitive"
 # var can't be, so the prior token is recovered from the state file —
-# or rotated to a fresh one when no state file exists (consumers read
+# or rotated to a fresh one when it holds no usable token (consumers read
 # the state file, so either stays consistent).
 
 set -euo pipefail
@@ -154,7 +154,7 @@ elif vercel env ls production 2>/dev/null | grep -qE '^\s*DASHBOARD_TOKEN\b'; th
       echo "env pull returned no value for DASHBOARD_TOKEN (likely a write-only Sensitive var) — recovered the prior token from the state file (…${DASHBOARD_TOKEN: -3}); re-pushing it as a readable var." >&2
     else
       DASHBOARD_TOKEN=$(openssl rand -hex 32)
-      echo "env pull returned no value for DASHBOARD_TOKEN (likely a write-only Sensitive var) and no prior state file — rotated to a fresh token (…${DASHBOARD_TOKEN: -3})." >&2
+      echo "env pull returned no value for DASHBOARD_TOKEN (likely a write-only Sensitive var) and no usable prior token in the state file — rotated to a fresh token (…${DASHBOARD_TOKEN: -3})." >&2
     fi
     push_token_to_prod
   fi
