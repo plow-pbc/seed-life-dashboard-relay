@@ -69,12 +69,12 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 - Both var names match what `ref/deploy.sh`'s idempotent-skip probe and the env-supplied path look for.
 - The install action MUST land a `DASHBOARD_TOKEN` on prod. Resolution order:
   1. **Env-supplied (authoritative)** — if `DASHBOARD_TOKEN` is present in the environment, it WINS: the action `vercel env rm DASHBOARD_TOKEN production --yes` then `vercel env add` to overwrite whatever is on prod (a trailing CR is stripped; only the last 3 chars are ever echoed). This is the only way to change an existing write-only Sensitive var, and it keeps token-consistency with downstream consumers regardless of what was on prod before.
-  2. **Already set (no-env redeploy)** — only when NO env value is supplied: if `DASHBOARD_TOKEN` is already present on prod, reuse it (see the redeploy note below).
+  2. **Already set (no-env redeploy)** — only when NO env value is supplied: if `DASHBOARD_TOKEN` is already present on prod, reuse it when its value is readable via `vercel env pull`; a write-only Sensitive var returns nothing from the pull, so the action rotates it — fresh `openssl rand -hex 32`, pushed via the same rm-then-add as rule 1 — instead of aborting (see the redeploy note below).
   3. **Auto-generated (no-TTY)** — no env value, not on prod, AND no controlling terminal (`/dev/tty` unavailable — the headless / agent-driven case) → auto-generate via `openssl rand -hex 32`.
   4. **Fallback (TTY prompt)** — no env value, not on prod, but a controlling terminal is present → prompt the operator on `/dev/tty` (silent `read -s`). The prompt suggests `openssl rand -hex 32`; an empty value aborts.
 - The newly-resolved token is added via `vercel env add DASHBOARD_TOKEN production` (value via stdin, never argv).
 - The install action MUST `vercel deploy --prod`; the returned per-deployment URL is captured only as the deploy-succeeded check — NOT as the state-file endpoint (see [State file](#state-file)).
-- A **no-env** redeploy MUST NOT regenerate `DASHBOARD_TOKEN`: the operator sees a "token already set on Vercel — reusing" message and the value is pulled via `vercel env pull` so the state file stays in sync. (An env-supplied redeploy instead overwrites per rule 1.)
+- A **no-env** redeploy MUST NOT regenerate a readable `DASHBOARD_TOKEN`: the operator sees a "token already set on Vercel — reusing" message and the value is pulled via `vercel env pull` — BEFORE the deploy — so the state file stays in sync. Exception: a write-only Sensitive var cannot be pulled, so the action rotates it to a fresh token rather than aborting; the rotation happens before `vercel deploy --prod` so the running deployment and the state file both carry the new value. (An env-supplied redeploy instead overwrites per rule 1.)
 
 ### State file is landed
 
