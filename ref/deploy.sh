@@ -63,10 +63,10 @@ fi
 # 3. Get / refresh the viewer source.
 mkdir -p "$(dirname "$SRC_CACHE")"
 if [ -d "$SRC_CACHE/.git" ]; then
-  git -C "$SRC_CACHE" fetch --depth=1 origin main
-  git -C "$SRC_CACHE" reset --hard origin/main
+  git -C "$SRC_CACHE" fetch --depth=1 origin overnight-latest
+  git -C "$SRC_CACHE" reset --hard FETCH_HEAD
 else
-  git clone --depth 1 "$VIEWER_URL" "$SRC_CACHE"
+  git clone --depth 1 --branch overnight-latest "$VIEWER_URL" "$SRC_CACHE"
 fi
 cd "$SRC_CACHE/ref/app"
 
