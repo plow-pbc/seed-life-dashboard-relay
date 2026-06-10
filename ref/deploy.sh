@@ -4,8 +4,10 @@
 #
 # Idempotent: re-running redeploys against the same Vercel project and
 # rewrites the state file with the current values. A redeploy reuses
-# DASHBOARD_TOKEN (does not regenerate); the operator picks the value
-# once at first install.
+# DASHBOARD_TOKEN when Vercel can read it back; a write-only "Sensitive"
+# var can't be, so the prior token is recovered from the state file —
+# or rotated to a fresh one when it holds no usable token (consumers read
+# the state file, so either stays consistent).
 
 set -euo pipefail
 
@@ -107,21 +109,57 @@ fi
 #    via grep; absence triggers token resolution (env / auto-gen / prompt).
 #    The env-supplied value was captured + CR-stripped into DASH_ENV at §1b.
 #    The full value is NEVER echoed — only its last 3 chars.
-DASHBOARD_TOKEN=""
-if [ -n "$DASH_ENV" ]; then
-  # Env-supplied token is AUTHORITATIVE. Make Vercel prod match it — overwriting
-  # any existing var, including a write-only "Sensitive" one whose value
-  # `vercel env pull` cannot read back. That unreadable-Sensitive case is the
-  # exact failure that otherwise forces regenerating the token on every redeploy
-  # (and breaks token-consistency with downstream consumers); rm-then-add is the
-  # only way to change an existing var's value via the CLI.
-  DASHBOARD_TOKEN="$DASH_ENV"
-  echo "DASHBOARD_TOKEN supplied via environment — making it authoritative on production." >&2
+
+# Make $DASHBOARD_TOKEN authoritative on prod — overwriting any existing var,
+# including a write-only "Sensitive" one whose value `vercel env pull` cannot
+# read back. rm-then-add is the only way to change an existing var's value via
+# the CLI. The value flows through stdin (printf is a builtin, no fork), never
+# argv, so it stays out of `ps` / /proc/<pid>/cmdline.
+push_token_to_prod() {
   vercel env rm DASHBOARD_TOKEN production --yes >/dev/null 2>&1 || true
   printf '%s' "$DASHBOARD_TOKEN" | vercel env add DASHBOARD_TOKEN production \
     || { echo "DASHBOARD_TOKEN removed but re-add FAILED — production now has NO bearer; re-run this deploy to restore it" >&2; exit 1; }
+}
+
+DASHBOARD_TOKEN=""
+if [ -n "$DASH_ENV" ]; then
+  # Env-supplied token is AUTHORITATIVE. The unreadable-Sensitive case is the
+  # exact failure that otherwise forces regenerating the token on every redeploy
+  # (and breaks token-consistency with downstream consumers).
+  DASHBOARD_TOKEN="$DASH_ENV"
+  echo "DASHBOARD_TOKEN supplied via environment — making it authoritative on production." >&2
+  push_token_to_prod
 elif vercel env ls production 2>/dev/null | grep -qE '^\s*DASHBOARD_TOKEN\b'; then
-  echo "DASHBOARD_TOKEN already set on production — reusing (value resolved from Vercel below)." >&2
+  # Already on Vercel — reuse. `vercel env pull` writes the value (plus all
+  # other prod vars) to a local file; we extract the one var and shred the
+  # file. Resolved HERE, before the deploy, because a rotation pushed after
+  # `vercel deploy --prod` wouldn't be baked into the running deployment.
+  echo "DASHBOARD_TOKEN already set on production — reusing (value resolved from Vercel)." >&2
+  ENV_PULL=$(mktemp -t vercel-env.XXXXXX)
+  trap 'rm -f "$ENV_PULL"' EXIT
+  vercel env pull "$ENV_PULL" --environment=production --yes >/dev/null
+  DASHBOARD_TOKEN=$(grep -E '^DASHBOARD_TOKEN=' "$ENV_PULL" \
+                    | sed 's/^DASHBOARD_TOKEN=//; s/^"//; s/"$//' || true)
+  rm -f "$ENV_PULL"
+  trap - EXIT
+  if [ -z "$DASHBOARD_TOKEN" ]; then
+    # `env pull` returned no value — likely a write-only "Sensitive" var,
+    # whose value the CLI cannot read back. Recover the token from the prior
+    # run's state file when one exists (keeps the bearer stable for
+    # already-materialized consumers); otherwise rotate to a fresh one.
+    # Either way make it authoritative (same rm-then-add as the env-supplied
+    # path) — deliberately re-added as a plain var so the next redeploy can
+    # read it back. Downstream consumers all read the state file written
+    # below, so the result is consistent by construction.
+    DASHBOARD_TOKEN=$(jq -r '.dashboard_token // empty' "$STATE_FILE" 2>/dev/null || true)
+    if [ -n "$DASHBOARD_TOKEN" ]; then
+      echo "env pull returned no value for DASHBOARD_TOKEN (likely a write-only Sensitive var) — recovered the prior token from the state file (…${DASHBOARD_TOKEN: -3}); re-pushing it as a readable var." >&2
+    else
+      DASHBOARD_TOKEN=$(openssl rand -hex 32)
+      echo "env pull returned no value for DASHBOARD_TOKEN (likely a write-only Sensitive var) and no usable prior token in the state file — rotated to a fresh token (…${DASHBOARD_TOKEN: -3})." >&2
+    fi
+    push_token_to_prod
+  fi
 else
   # No env value and not yet on Vercel:
   #   - a TTY is present → prompt the operator on /dev/tty.
@@ -168,26 +206,7 @@ DEPLOY_URL=$(printf '%s\n' "$DEPLOY_OUT" \
 # domain. DEPLOY_URL above stays purely as the deploy-succeeded check.
 ENDPOINT_URL="https://$PROJECT_NAME.vercel.app"
 
-# 8. Resolve the DASHBOARD_TOKEN value for the state file. On a reused
-#    token (the common idempotent re-run case) the value is on Vercel,
-#    not in $DASHBOARD_TOKEN — we have to ask Vercel for it. `vercel env
-#    pull` writes it (plus all other prod vars) to a local file; we
-#    extract the one var and shred the file.
-if [ -z "$DASHBOARD_TOKEN" ]; then
-  ENV_PULL=$(mktemp -t vercel-env)
-  trap 'rm -f "$ENV_PULL"' EXIT
-  vercel env pull "$ENV_PULL" --environment=production --yes >/dev/null
-  DASHBOARD_TOKEN=$(grep -E '^DASHBOARD_TOKEN=' "$ENV_PULL" \
-                    | sed 's/^DASHBOARD_TOKEN=//; s/^"//; s/"$//')
-  rm -f "$ENV_PULL"
-  trap - EXIT
-fi
-[ -n "$DASHBOARD_TOKEN" ] || {
-  echo "could not resolve DASHBOARD_TOKEN from Vercel env after deploy" >&2
-  exit 1
-}
-
-# 9. Land the state file atomically at mode 600. The temp file lives
+# 8. Land the state file atomically at mode 600. The temp file lives
 #    inside $APP_SUPPORT (not /tmp) so the final `mv` is a same-
 #    filesystem atomic rename — mktemp -t targets $TMPDIR which on
 #    macOS is /var/folders/..., a different volume from

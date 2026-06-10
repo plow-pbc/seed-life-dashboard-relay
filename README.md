@@ -9,7 +9,7 @@ Installing this SEED:
 1. Clones the viewer repo to access its dual-purpose `ref/app/` source.
 2. Surfaces `vercel login` (browser OAuth) only if not already logged in.
 3. Ensures Upstash KV credentials (`KV_REST_API_URL` + `KV_REST_API_TOKEN`) are on prod. If both are already supplied in the environment, they are pushed straight to prod and the browser-OAuth `vercel integration add upstash-kv` step is **skipped**; otherwise that integration step is the fallback.
-4. Resolves a `DASHBOARD_TOKEN` (the bearer the relay validates on every `/api/message` write/read): an env-supplied value is authoritative and overwrites whatever is on prod; otherwise an already-set prod token is reused (the no-env redeploy case); otherwise it's auto-generated via `openssl rand -hex 32` when there's no controlling terminal (headless install); otherwise prompted interactively on `/dev/tty`.
+4. Resolves a `DASHBOARD_TOKEN` (the bearer the relay validates on every `/api/message` write/read): an env-supplied value is authoritative and overwrites whatever is on prod; otherwise an already-set prod token is reused (the no-env redeploy case — a write-only Sensitive var `vercel env pull` can't read back is recovered from the prior state file, or rotated to a fresh token when no usable prior token is found there); otherwise it's auto-generated via `openssl rand -hex 32` when there's no controlling terminal (headless install); otherwise prompted interactively on `/dev/tty`.
 5. Runs `vercel env add` + `vercel deploy --prod`.
 6. Writes the production-alias URL (`https://<project>.vercel.app`) + bearer to `~/Library/Application Support/seed-life-dashboard-relay/state.json` (mode 600) so the agent SEED and the viewer SEED can wire themselves up without re-prompting the operator.
 
