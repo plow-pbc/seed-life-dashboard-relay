@@ -151,7 +151,7 @@ elif vercel env ls production 2>/dev/null | grep -qE '^\s*DASHBOARD_TOKEN\b'; th
     # below, so the result is consistent by construction.
     DASHBOARD_TOKEN=$(jq -r '.dashboard_token // empty' "$STATE_FILE" 2>/dev/null || true)
     if [ -n "$DASHBOARD_TOKEN" ]; then
-      echo "env pull returned no value for DASHBOARD_TOKEN (likely a write-only Sensitive var) — recovered the prior token from the state file (…${DASHBOARD_TOKEN: -3}) and re-pushing it." >&2
+      echo "env pull returned no value for DASHBOARD_TOKEN (likely a write-only Sensitive var) — recovered the prior token from the state file (…${DASHBOARD_TOKEN: -3}); re-pushing it as a readable var." >&2
     else
       DASHBOARD_TOKEN=$(openssl rand -hex 32)
       echo "env pull returned no value for DASHBOARD_TOKEN (likely a write-only Sensitive var) and no prior state file — rotated to a fresh token (…${DASHBOARD_TOKEN: -3})." >&2
