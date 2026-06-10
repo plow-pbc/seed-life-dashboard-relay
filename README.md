@@ -9,7 +9,7 @@ Installing this SEED:
 1. Clones the viewer repo to access its dual-purpose `ref/app/` source.
 2. Surfaces `vercel login` (browser OAuth) only if not already logged in.
 3. Ensures Upstash KV credentials (`KV_REST_API_URL` + `KV_REST_API_TOKEN`) are on prod. Reused if already present on prod; else, if both are supplied in the environment, pushed straight to prod (skipping the integration step); otherwise provisioned with `vercel integration add upstash-kv --plan paid -e production`, which is headless once the Upstash integration is authorized on the Vercel account (only a first-ever account authorization needs a browser).
-4. Resolves a `DASHBOARD_TOKEN` (the bearer the relay validates on every `/api/message` write/read): an env-supplied value is authoritative; otherwise every deploy mints a fresh one via `openssl rand -hex 32`. Rotation is invisible to consumers — they read the state file written the same run.
+4. Resolves a `DASHBOARD_TOKEN` (the bearer the relay validates on every `/api/message` write/read): an env-supplied value is authoritative; otherwise every deploy mints a fresh one via `openssl rand -hex 32` (consumers pick the new value up from the state file — see the rotation rule in SEED.md § Actions).
 5. Lands the token (rm-then-add) and runs `vercel deploy --prod`.
 6. Writes the production-alias URL (`https://<project>.vercel.app`) + bearer to `~/Library/Application Support/seed-life-dashboard-relay/state.json` (mode 600) so the agent SEED and the viewer SEED can wire themselves up without re-prompting the operator.
 

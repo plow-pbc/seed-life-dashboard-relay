@@ -54,7 +54,7 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 ### DASHBOARD_TOKEN
 
-- The bearer the relay validates on every `/api/message` read/write. NOT logged, NOT echoed, NOT included in commits. Resolved in order: an **env-supplied `DASHBOARD_TOKEN` is authoritative** (the operator-pinned case); otherwise **every deploy mints a fresh token** via `openssl rand -hex 32` — no reuse, no pull-back. Rotation is invisible to consumers: they read the state file, which is rewritten with the same value each run. It lands in two places: Vercel env (production) and the state file — nowhere else.
+- The bearer the relay validates on every `/api/message` read/write. NOT logged, NOT echoed, NOT included in commits. Resolved in order: an **env-supplied `DASHBOARD_TOKEN` is authoritative** (the operator-pinned case); otherwise **every deploy mints a fresh token** via `openssl rand -hex 32` — no reuse, no pull-back (rotation semantics: the [resolution rule](#vercel-project-is-deployed)). It lands in two places: Vercel env (production) and the state file — nowhere else.
 
 ## Actions
 
