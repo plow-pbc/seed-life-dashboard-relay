@@ -16,8 +16,8 @@ SRC_CACHE="$HOME/Library/Caches/seed-life-dashboard-relay/source"
 VIEWER_URL="https://github.com/plow-pbc/seed-life-dashboard-viewer.git"
 
 # 1. Required tools. Checked BEFORE first use of any of them (xxd/shasum
-#    in the machine-ID block, openssl in the headless DASHBOARD_TOKEN
-#    auto-generation path) so a missing tool fails loudly up front.
+#    in the machine-ID block, openssl in the DASHBOARD_TOKEN minting
+#    step) so a missing tool fails loudly up front.
 for tool in vercel git jq curl shasum xxd openssl; do
   command -v "$tool" >/dev/null \
     || { echo "missing required tool: $tool" >&2; exit 1; }
@@ -117,7 +117,7 @@ fi
 # stdin (printf is a builtin, no fork), never argv.
 vercel env rm DASHBOARD_TOKEN production --yes >/dev/null 2>&1 || true
 printf '%s' "$DASHBOARD_TOKEN" | vercel env add DASHBOARD_TOKEN production \
-  || { echo "DASHBOARD_TOKEN removed but re-add FAILED — production now has NO bearer; re-run this deploy to restore it" >&2; exit 1; }
+  || { echo "DASHBOARD_TOKEN env add FAILED — the prod env var may be missing or stale; re-run this deploy" >&2; exit 1; }
 
 # 7. Deploy. `vercel deploy` may emit trailing diagnostic lines (inspect
 #    hints, warnings) after the deployment URL, so `tail -1` can poison

@@ -69,7 +69,7 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 - Both var names match what `ref/deploy.sh`'s idempotent-skip probe and the env-supplied path look for.
 - The install action MUST land a `DASHBOARD_TOKEN` on prod, BEFORE `vercel deploy --prod` (env vars are snapshotted into the deployment at build time). Resolution order:
   1. **Env-supplied (authoritative)** — if `DASHBOARD_TOKEN` is present in the environment, it WINS (a trailing CR is stripped; only the last 3 chars are ever echoed).
-  2. **Fresh-minted** — otherwise the action generates one via `openssl rand -hex 32`. Every no-env deploy rotates; consumers are unaffected (they read the state file written the same run).
+  2. **Fresh-minted** — otherwise the action generates one via `openssl rand -hex 32`. Every no-env deploy rotates; consumers pick up the new token the next time they (re-)read the state file — a relay-only redeploy requires re-running downstream SEEDs that have materialized the old value.
 - Either way the token is landed via `vercel env rm DASHBOARD_TOKEN production --yes` then `vercel env add` (value via stdin, never argv) — rm-then-add is the only way to overwrite a var a prior deploy left on prod.
 - The install action MUST `vercel deploy --prod`; the returned per-deployment URL is captured only as the deploy-succeeded check — NOT as the state-file endpoint (see [State file](#state-file)).
 
