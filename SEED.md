@@ -24,7 +24,7 @@ Software:
 |---|---|---|---|---|
 | account | Vercel account | preflight | `vercel login` (browser OAuth) | `VERCEL_TOKEN` |
 | tool | `vercel` CLI, Node ≥ 20.6, `git`, `jq`, `curl`, `shasum`, `xxd`, `openssl` | preflight | `npm i -g vercel@latest`; install Node / git / jq; `curl` / `shasum` / `xxd` / `openssl` ship at `/usr/bin/*` on macOS | |
-| auth | Upstash KV provisioning (first run needs browser OAuth) | in-flow | `vercel integration add upstash-kv` (browser OAuth) | `KV_REST_API_URL`+`KV_REST_API_TOKEN` |
+| auth | Upstash KV provisioning (headless with `--plan paid`; only a first-ever account authorization needs a browser) | in-flow | `vercel integration add upstash-kv --plan paid -e production` | `KV_REST_API_URL`+`KV_REST_API_TOKEN` |
 | input | `DASHBOARD_TOKEN` (relay bearer) | preflight | `DASHBOARD_TOKEN` env, else auto-generated `openssl rand -hex 32` | |
 
 Run the following block to deploy the relay. The block is idempotent: re-running redeploys against the same Vercel project and rewrites the state file with the current values.
@@ -42,7 +42,7 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 
 ### Upstash KV resource
 
-- The Upstash KV resource the relay's `/api/message` route reads from and writes to. Resolved in order (see the [KV resolution action](#vercel-project-is-deployed)): reused if already present on prod, else pushed straight to prod when `KV_REST_API_URL` + `KV_REST_API_TOKEN` are env-supplied (headless / OAuth-free), else provisioned via Vercel's marketplace integration (`vercel integration add upstash-kv`) as the browser-OAuth fallback.
+- The Upstash KV resource the relay's `/api/message` route reads from and writes to. Resolved in order (see the [KV resolution action](#vercel-project-is-deployed)): reused if already present on prod, else pushed straight to prod when `KV_REST_API_URL` + `KV_REST_API_TOKEN` are env-supplied (headless / OAuth-free), else provisioned via Vercel's marketplace integration with an explicit plan (`vercel integration add upstash-kv --plan paid -e production`), which is non-interactive once the integration is authorized on the account.
 
 ### State file
 
@@ -65,7 +65,7 @@ bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
 - The install action MUST ensure `KV_REST_API_URL` + `KV_REST_API_TOKEN` are set on the production deployment. Resolution order:
   1. **Already linked** — if both vars are already present on prod (idempotent re-run), the action reuses them and does nothing.
   2. **Env-supplied (headless / OAuth-free)** — if both `KV_REST_API_URL` and `KV_REST_API_TOKEN` are present in the environment, the action pushes them straight to prod via `vercel env add` (values via stdin, never argv; a trailing CR is stripped) and **SKIPS** `vercel integration add upstash-kv`. This is the path that avoids the browser OAuth flow entirely.
-  3. **Fallback (browser OAuth)** — otherwise the action runs `vercel integration add upstash-kv`, whose first run requires browser OAuth and can't be fully automated. This provisions the Upstash KV resource and exposes the credentials as `KV_REST_API_URL` + `KV_REST_API_TOKEN`.
+  3. **Provision (headless via explicit plan)** — otherwise the action runs `vercel integration add upstash-kv --plan paid -e production`, provisioning a fresh Upstash KV resource and connecting its `KV_REST_API_URL` + `KV_REST_API_TOKEN` to prod. The explicit `--plan paid` (Upstash's free-tier Pay-As-You-Go) is load-bearing: the bare command defers **plan selection** to a browser, and that prompt is the only thing that forced a human into this step. With the plan supplied, provisioning is non-interactive **once the Upstash integration is authorized on the Vercel account** (the common case — any account already using Upstash). The one residual browser step is a *first-ever* authorization of the Upstash integration on a brand-new account; after that, every run is fully headless.
 - Both var names match what `ref/deploy.sh`'s idempotent-skip probe and the env-supplied path look for.
 - The install action MUST land a `DASHBOARD_TOKEN` on prod. Resolution order:
   1. **Env-supplied (authoritative)** — if `DASHBOARD_TOKEN` is present in the environment, it WINS: the action `vercel env rm DASHBOARD_TOKEN production --yes` then `vercel env add` to overwrite whatever is on prod (a trailing CR is stripped; only the last 3 chars are ever echoed). This is the only way to change an existing write-only Sensitive var, and it keeps token-consistency with downstream consumers regardless of what was on prod before.
