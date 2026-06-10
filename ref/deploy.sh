@@ -61,6 +61,8 @@ if ! vercel whoami >/dev/null 2>&1; then
 fi
 
 # 3. Get / refresh the viewer source.
+# TEST PLUMBING (overnight-latest branch only) — DO NOT MERGE to main;
+# see seed-life-dashboard d6ac834. main's version tracks origin/main.
 mkdir -p "$(dirname "$SRC_CACHE")"
 if [ -d "$SRC_CACHE/.git" ]; then
   git -C "$SRC_CACHE" fetch --depth=1 origin overnight-latest
