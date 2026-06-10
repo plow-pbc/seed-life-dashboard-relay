@@ -137,7 +137,7 @@ elif vercel env ls production 2>/dev/null | grep -qE '^\s*DASHBOARD_TOKEN\b'; th
   trap 'rm -f "$ENV_PULL"' EXIT
   vercel env pull "$ENV_PULL" --environment=production --yes >/dev/null
   DASHBOARD_TOKEN=$(grep -E '^DASHBOARD_TOKEN=' "$ENV_PULL" \
-                    | sed 's/^DASHBOARD_TOKEN=//; s/^"//; s/"$//')
+                    | sed 's/^DASHBOARD_TOKEN=//; s/^"//; s/"$//' || true)
   rm -f "$ENV_PULL"
   trap - EXIT
   if [ -z "$DASHBOARD_TOKEN" ]; then
