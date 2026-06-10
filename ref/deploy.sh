@@ -5,8 +5,9 @@
 # Idempotent: re-running redeploys against the same Vercel project and
 # rewrites the state file with the current values. A redeploy reuses
 # DASHBOARD_TOKEN when Vercel can read it back; a write-only "Sensitive"
-# var can't be, so it is rotated to a fresh token (consumers read the
-# state file, so rotation stays consistent).
+# var can't be, so the prior token is recovered from the state file —
+# or rotated to a fresh one when no state file exists (consumers read
+# the state file, so either stays consistent).
 
 set -euo pipefail
 
@@ -132,7 +133,7 @@ elif vercel env ls production 2>/dev/null | grep -qE '^\s*DASHBOARD_TOKEN\b'; th
   # file. Resolved HERE, before the deploy, because a rotation pushed after
   # `vercel deploy --prod` wouldn't be baked into the running deployment.
   echo "DASHBOARD_TOKEN already set on production — reusing (value resolved from Vercel)." >&2
-  ENV_PULL=$(mktemp -t vercel-env)
+  ENV_PULL=$(mktemp -t vercel-env.XXXXXX)
   trap 'rm -f "$ENV_PULL"' EXIT
   vercel env pull "$ENV_PULL" --environment=production --yes >/dev/null
   DASHBOARD_TOKEN=$(grep -E '^DASHBOARD_TOKEN=' "$ENV_PULL" \
@@ -140,13 +141,21 @@ elif vercel env ls production 2>/dev/null | grep -qE '^\s*DASHBOARD_TOKEN\b'; th
   rm -f "$ENV_PULL"
   trap - EXIT
   if [ -z "$DASHBOARD_TOKEN" ]; then
-    # The var exists on Vercel but is write-only "Sensitive" — `env pull`
-    # returns nothing for it, so the value cannot be reused. Rotate: generate
-    # a fresh token and make it authoritative (same rm-then-add as the
-    # env-supplied path). Downstream consumers all read the state file
-    # written below, so the rotated token is consistent by construction.
-    DASHBOARD_TOKEN=$(openssl rand -hex 32)
-    echo "DASHBOARD_TOKEN on production is write-only (Sensitive) — env pull returned no value; rotated to a fresh token (…${DASHBOARD_TOKEN: -3})." >&2
+    # `env pull` returned no value — likely a write-only "Sensitive" var,
+    # whose value the CLI cannot read back. Recover the token from the prior
+    # run's state file when one exists (keeps the bearer stable for
+    # already-materialized consumers); otherwise rotate to a fresh one.
+    # Either way make it authoritative (same rm-then-add as the env-supplied
+    # path) — deliberately re-added as a plain var so the next redeploy can
+    # read it back. Downstream consumers all read the state file written
+    # below, so the result is consistent by construction.
+    DASHBOARD_TOKEN=$(jq -r '.dashboard_token // empty' "$STATE_FILE" 2>/dev/null || true)
+    if [ -n "$DASHBOARD_TOKEN" ]; then
+      echo "env pull returned no value for DASHBOARD_TOKEN (likely a write-only Sensitive var) — recovered the prior token from the state file (…${DASHBOARD_TOKEN: -3}) and re-pushing it." >&2
+    else
+      DASHBOARD_TOKEN=$(openssl rand -hex 32)
+      echo "env pull returned no value for DASHBOARD_TOKEN (likely a write-only Sensitive var) and no prior state file — rotated to a fresh token (…${DASHBOARD_TOKEN: -3})." >&2
+    fi
     push_token_to_prod
   fi
 else
