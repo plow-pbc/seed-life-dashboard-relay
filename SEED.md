@@ -28,6 +28,11 @@ Software:
 
 ### Requirements
 
+> **Retired — do not collect.** This table is historical record only; the installer's
+> preflight MUST NOT prompt for, provision, or browser-OAuth any row below (the install
+> block halts regardless).
+
+
 | kind | label | phase | satisfy | bypass |
 |---|---|---|---|---|
 | account | Vercel account | preflight | `vercel login` (browser OAuth) | `VERCEL_TOKEN` |
@@ -35,7 +40,7 @@ Software:
 | auth | Upstash KV provisioning (headless with `--plan paid`; only a first-ever account authorization needs a browser) | in-flow | `vercel integration add upstash-kv --plan paid -e production` | `KV_REST_API_URL`+`KV_REST_API_TOKEN` |
 | input | `DASHBOARD_TOKEN` (relay bearer) | preflight | `DASHBOARD_TOKEN` env, else auto-generated `openssl rand -hex 32` | |
 
-The install path is retired — the block below is the SEED's one executable step and it
+The install path is retired — the block below is the install path's one executable block and it
 halts unconditionally, so an agent walking this SEED cannot provision the obsolete relay
 (`ref/deploy.sh` is retained as historical reference only, not linked normatively):
 
@@ -98,6 +103,11 @@ exit 1
 - The state file's `dashboard_token` value is the same one set as the Vercel env var — single source of truth for the bearer. Consumers read it to derive their own configuration.
 
 ## Verification
+
+> **Retired — historical record only.** Do not run these checks (or `ref/verify.sh`);
+> there is no live deployment contract to verify. The uninstall commands in § Open Items
+> remain intentionally live.
+
 
 1. **State file present and well-formed.** Does `~/Library/Application Support/seed-life-dashboard-relay/state.json` exist with mode `600`, parse as JSON, and contain non-empty `endpoint_url` (HTTPS) and `dashboard_token` strings? Expected: yes.
 2. **Endpoint reachable.** Run `bash ref/verify.sh` (or the equivalent — see [`ref/verify.sh`](ref/verify.sh) for the exact mode-600 `curl -K`-config pattern that keeps `dashboard_token` out of process argv). The verifier asserts `GET <endpoint_url>/api/message` with bearer returns HTTP 200 with a JSON body (empty list `[]` is valid — relay was just deployed). Do NOT inline `curl -H "Authorization: Bearer $(jq -r .dashboard_token ...)"` literally: that puts the household token in process argv (visible via `ps` / `/proc/<pid>/cmdline`). Expected: yes.
