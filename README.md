@@ -1,5 +1,13 @@
 # seed-life-dashboard-relay
 
+> **Superseded (2026-06).** The message backend now lives in
+> [`seed-life-dashboard-viewer`](https://github.com/plow-pbc/seed-life-dashboard-viewer)
+> and runs on the household Pi itself — the umbrella
+> [`seed-life-dashboard`](https://github.com/plow-pbc/seed-life-dashboard) mints the
+> token, derives the endpoint from `LD_PI_SSH_TARGET`, and no longer installs this
+> SEED. No Vercel or Upstash account is needed. This repo is retained for history;
+> to remove an old deploy, see the uninstall notes in `SEED.md` § Open Items.
+
 ## Purpose
 
 A SEED that deploys the per-household Vercel message relay backing the [life-dashboard](https://github.com/plow-pbc/seed-life-dashboard-viewer) kiosk. The relay is the `/api/message` endpoint that the Plow-side `ld-*` agent skills POST cards to and the Pi-side kiosk reads cards from — same source code as the viewer's Node service, deployed to Vercel for the producer↔consumer hop.
