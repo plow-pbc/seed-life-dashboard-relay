@@ -1,5 +1,13 @@
 # Purpose
 
+> **SUPERSEDED (2026-06).** This SEED MUST NOT be installed. The message backend now
+> lives in [`seed-life-dashboard-viewer`](https://github.com/plow-pbc/seed-life-dashboard-viewer)
+> and runs on the household Pi; the umbrella
+> [`seed-life-dashboard`](https://github.com/plow-pbc/seed-life-dashboard) mints the token and
+> derives the endpoint — no Vercel or Upstash account exists in the graph. Everything below
+> is retained as a historical record of the retired contract plus the uninstall notes in
+> § Open Items. The install block below halts by design.
+
 > See [README#Purpose](README.md#purpose).
 
 ## Normative Language
@@ -27,11 +35,14 @@ Software:
 | auth | Upstash KV provisioning (headless with `--plan paid`; only a first-ever account authorization needs a browser) | in-flow | `vercel integration add upstash-kv --plan paid -e production` | `KV_REST_API_URL`+`KV_REST_API_TOKEN` |
 | input | `DASHBOARD_TOKEN` (relay bearer) | preflight | `DASHBOARD_TOKEN` env, else auto-generated `openssl rand -hex 32` | |
 
-Run the following block to deploy the relay. The block is idempotent: re-running redeploys against the same Vercel project and rewrites the state file with the current values.
+The install path is retired — the block below is the SEED's one executable step and it
+halts unconditionally, so an agent walking this SEED cannot provision the obsolete relay
+(`ref/deploy.sh` is retained as historical reference only, not linked normatively):
 
 ```bash
-set -euo pipefail
-bash "$(dirname "${BASH_SOURCE[0]:-$0}")/ref/deploy.sh"
+echo "SUPERSEDED: seed-life-dashboard-relay is retired — install" >&2
+echo "https://github.com/plow-pbc/seed-life-dashboard instead (Pi-hosted backend)." >&2
+exit 1
 ```
 
 ## Objects
