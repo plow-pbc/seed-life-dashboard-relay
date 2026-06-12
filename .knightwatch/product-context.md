@@ -14,4 +14,4 @@ Operating point (org default):
 - **Spec rigidity:** the SEED prose IS the contract; a handled edge case the
   spec never asked for is a cost, not a feature.
 
-**This repo's `ref/` payload:** Bash scripts under ref/: deploy.sh (idempotent Vercel relay deploy + Upstash KV provisioning + state.json) and verify.sh.
+**This repo's `ref/` payload:** historical reference only — the SEED is retired (superseded by the Pi-hosted backend in seed-life-dashboard-viewer). deploy.sh / verify.sh document the old Vercel relay contract; the live contract is the unconditional halt in SEED.md § Dependencies.
