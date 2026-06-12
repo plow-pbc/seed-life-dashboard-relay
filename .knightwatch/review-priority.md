@@ -12,9 +12,11 @@ PR-relevant distillation; edit there first, re-distill here.
 **Cultural emphasis:** SIMPLIFY at all costs — subtractive remedies (delete,
 collapse, inline) outrank additive ones at every severity. The prose spec is
 the contract; `ref/` is one realization of it. Apply the universal
-Broken-Glass posture from `standards.md` § Broken-Glass Test. The structural
-gate is falsifiable: `ref/verify.sh` must stay green (it implements the three
-SEED structural Verification prompts).
+Broken-Glass posture from `standards.md` § Broken-Glass Test. This SEED is RETIRED (superseded by the Pi-hosted backend): `ref/deploy.sh` and
+`ref/verify.sh` are historical reference, not a live contract. The structural
+gate is the inert install block in `SEED.md` § Dependencies — it MUST halt
+unconditionally; any change that makes the SEED installable again is the
+regression to flag.
 
 **Repo-specific contrast pairs (beyond the universal set in `standards.md`):**
 
