@@ -22,8 +22,8 @@ regression to flag.
 
 | SEED-convention DON'T (suppress / flag-as-shape) | SEED-convention DO (real finding) |
 |---|---|
-| Flag `ref/` code for missing abstractions, scale-hardening, extra flags, or defensive edge cases. `ref/` is a single-operator reference impl, not a product. | Flag a `ref/` change that breaks `ref/verify.sh` or makes a prose `## Verification` prompt no longer pass. |
-| Treat prose-only edits (Objects/Actions wording) as low-value churn. | Flag **prose↔ref drift**: `ref/deploy.sh` diverging from `## Dependencies`, or `verify.sh` behavior diverging from the `## Verification` prompts — the canonical SEED regression. |
+| Flag `ref/` code for missing abstractions, scale-hardening, extra flags, or defensive edge cases. `ref/` is a single-operator reference impl, not a product. | Flag any change that makes the install block conditional, removes the halt, or makes the SEED installable again. |
+| Treat prose-only edits (Objects/Actions wording) as low-value churn. | Flag new **normative links into `ref/`** — `ref/` is historical reference in this retired SEED; prose must not re-adopt it as a live contract. |
 | Suggest "approve all" / batched shell to speed an install script. | Flag any `ref/` install/verify shell that **batches or auto-approves** — violates `tier-2` per-block confirm (`^act-trust`). |
 | — | Flag any **literal secret** in `SEED.md`/`README.md`, or a probe that surfaces secret values (`env`/`printenv`, `cat` of credential files, `git remote -v`, `docker compose config`) — `^act-author-secrets` / `^act-author-probes`. Presence/name-only probes are the conforming form. |
 | — | Flag a clone URL (in spec text or `ref/` shell) carrying **userinfo / query / fragment** — `^act-install-clone-url` argv-leakage rule. |

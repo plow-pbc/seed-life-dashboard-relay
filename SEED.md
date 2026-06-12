@@ -18,6 +18,14 @@ echo "https://github.com/plow-pbc/seed-life-dashboard instead (Pi-hosted backend
 exit 1
 ```
 
+## Objects
+
+- Retired — none. The historical objects (Vercel project, Upstash KV resource, state file, `DASHBOARD_TOKEN`) are owned by git history (`git log -- SEED.md`).
+
+## Actions
+
+- Retired — none. The one executable block (the unconditional halt) lives in `## Dependencies`, which is what an installer walks.
+
 ## Verification
 
 > Retired — there is no live deployment contract to verify. Do not run `ref/verify.sh`.
